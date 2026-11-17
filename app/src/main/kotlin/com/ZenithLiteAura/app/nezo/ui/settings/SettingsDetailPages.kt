@@ -364,9 +364,7 @@ private fun AboutInfoPage(actions: UiActions) {
         if (info.hasUpdate) {
             item(key = "update-button") {
                 Button(
-                    onClick = {
-                        UpdateGateway.openRelease(context, info.releaseUrl) { url -> actions.openUrl(url) }
-                    },
+                    onClick = { UpdateGateway.openRelease(context) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),

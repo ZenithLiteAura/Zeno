@@ -1,6 +1,7 @@
-package com.ZenithLiteAura.app.nezo.platform.update
+﻿package com.ZenithLiteAura.app.nezo.platform.update
 
 import android.content.Context
+import androidx.core.content.edit
 import com.ZenithLiteAura.app.nezo.BuildConfig
 import com.ZenithLiteAura.app.nezo.platform.AppVisibility
 import com.ZenithLiteAura.app.nezo.platform.Notifier
@@ -122,7 +123,7 @@ object UpdateChecker {
 
         checking = true
         _state.value = _state.value.copy(checking = true, error = "")
-        runCatching { prefs.edit().putLong(KEY_LAST_ATTEMPT, now).apply() }
+        runCatching { prefs.edit { putLong(KEY_LAST_ATTEMPT, now) } }
 
         scope.launch {
             try {
@@ -205,7 +206,7 @@ object UpdateChecker {
         }
 
         Notifier.notifyUpdate(context, state.latestVersion, state.releaseUrl)
-        runCatching { prefs.edit().putString(KEY_NOTIFIED_VERSION, state.latestVersion).apply() }
+        runCatching { prefs.edit { putString(KEY_NOTIFIED_VERSION, state.latestVersion) } }
     }
 
     // ── 缓存 ──────────────────────────────────────────────────────────────
@@ -215,21 +216,21 @@ object UpdateChecker {
 
     private fun persistSuccess(context: Context, state: UpdateState) {
         runCatching {
-            prefs(context).edit()
-                .putLong(KEY_LAST_SUCCESS, System.currentTimeMillis())
-                .putString(KEY_LATEST, state.latestVersion)
-                .putBoolean(KEY_HAS_UPDATE, state.hasUpdate)
-                .putString(KEY_RELEASE_URL, state.releaseUrl)
-                .putString(KEY_APK_URL, state.apkUrl)
-                .putString(KEY_ERROR, "")
-                .apply()
+            prefs(context).edit {
+                putLong(KEY_LAST_SUCCESS, System.currentTimeMillis())
+                putString(KEY_LATEST, state.latestVersion)
+                putBoolean(KEY_HAS_UPDATE, state.hasUpdate)
+                putString(KEY_RELEASE_URL, state.releaseUrl)
+                putString(KEY_APK_URL, state.apkUrl)
+                putString(KEY_ERROR, "")
+            }
         }
     }
 
     private fun persistError(context: Context, message: String) {
         runCatching {
             // 故意只写 error，不更新 last_success（保留上次成功结果，UI 仍能看到上次版本）
-            prefs(context).edit().putString(KEY_ERROR, message).apply()
+            prefs(context).edit { putString(KEY_ERROR, message) }
         }
     }
 

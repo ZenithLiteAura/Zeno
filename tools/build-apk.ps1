@@ -3,12 +3,12 @@
 # 流程：
 #   1. 按契约 §2 设置 JAVA_HOME / ANDROID_HOME / ANDROID_SDK_ROOT / ANDROID_USER_HOME /
 #      GRADLE_USER_HOME / TMP（本机沙箱限制，不设会 permission denied）
-#   2. 从 app/build.gradle.kts 读 versionName / versionCode，产物名 = ClipNest-<version>.apk
+#   2. 从 app/build.gradle.kts 读 versionName / versionCode，产物名 = Nezo-<version>.apk
 #   3. 检查启动图标，缺了就用 tools/make-icons.py 重新生成
 #   4. gradlew.bat :app:assembleRelease --console=plain（原生调用，不用 cmd /c；
 #      失败时打印关键错误行；lint 分析器自身崩溃会自动 -x lintVitalAnalyzeRelease 重试）
 #   5. 校验 app/build/outputs/apk/release/app-release.apk
-#   6. 复制到 03_releases\ClipNest\ClipNest-<version>.apk + 带时间戳备份
+#   6. 复制到 03_releases\Nezo\Nezo-<version>.apk + 带时间戳备份
 #   7. aapt2 dump badging（package/minSdk/targetSdk/label/launcher/权限）+ 版本一致性校验
 #   8. 1.1 下载模块静态体检：INTERNET / ACCESS_NETWORK_STATE / FOREGROUND_SERVICE_DATA_SYNC、
 #      DownloadService(dataSync) 是否在清单里、APK 里有没有混进 Python 项目/测试夹具
@@ -36,7 +36,7 @@ param(
     [ValidateSet('release', 'debug')]
     [string]$Variant = 'release',
     [string]$VersionName = '',
-    [string]$ReleaseDir = 'I:\DeepseekHarness\03_releases\ClipNest',
+    [string]$ReleaseDir = 'I:\DeepseekHarness\03_releases\Nezo',
     [switch]$Clean,
     [switch]$SkipIconCheck,
     [switch]$SkipLint,
@@ -254,10 +254,10 @@ $releaseApk = ''
 if ($Variant -eq 'release' -and -not $CheckOnly) {
     Write-Step "复制到发布目录 $ReleaseDir"
     New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
-    $releaseApk = Join-Path $ReleaseDir "ClipNest-$VersionName.apk"
+    $releaseApk = Join-Path $ReleaseDir "Nezo-$VersionName.apk"
     Copy-Item -LiteralPath $builtApk -Destination $releaseApk -Force
     $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-    $backupApk = Join-Path $ReleaseDir "ClipNest-$VersionName-$stamp.apk"
+    $backupApk = Join-Path $ReleaseDir "Nezo-$VersionName-$stamp.apk"
     Copy-Item -LiteralPath $builtApk -Destination $backupApk -Force
     Write-Ok "正式名：$releaseApk"
     Write-Ok "备份名：$backupApk"
@@ -317,7 +317,7 @@ if ($badgeExit -eq 0 -and (Test-Path $badgeLog)) {
     }
 
     if ($Variant -eq 'release') {
-        $badgeArchive = Join-Path $ReleaseDir "ClipNest-$VersionName-badging.txt"
+        $badgeArchive = Join-Path $ReleaseDir "Nezo-$VersionName-badging.txt"
         Copy-Item -LiteralPath $badgeLog -Destination $badgeArchive -Force
         Write-Ok "badging 结果已保存：$badgeArchive"
     }
@@ -519,7 +519,7 @@ try {
     Write-Ok "APK 清单已保存：$contentReport"
 
     if ($Variant -eq 'release') {
-        $contentArchive = Join-Path $ReleaseDir "ClipNest-$VersionName-contents.txt"
+        $contentArchive = Join-Path $ReleaseDir "Nezo-$VersionName-contents.txt"
         Copy-Item -LiteralPath $contentReport -Destination $contentArchive -Force
         Write-Ok "内容清单已保存：$contentArchive"
     }
@@ -564,7 +564,7 @@ else {
 if ($checkLines.Count -gt 0) {
     [System.IO.File]::WriteAllLines($checkReport, $checkLines, (New-Object System.Text.UTF8Encoding $false))
     if ($Variant -eq 'release') {
-        $checksArchive = Join-Path $ReleaseDir "ClipNest-$VersionName-checks.txt"
+        $checksArchive = Join-Path $ReleaseDir "Nezo-$VersionName-checks.txt"
         Copy-Item -LiteralPath $checkReport -Destination $checksArchive -Force
         Write-Ok "下载模块体检报告：$checksArchive"
     }
@@ -580,7 +580,7 @@ $magiskZip = ''
 if ($WithMagisk -and $Variant -eq 'release') {
     Write-Step '重打 Magisk 模块（root 真后台监听）'
     if (-not (Test-Path $MakeMagisk)) { Fail "找不到 $MakeMagisk" }
-    $magiskZip = Join-Path $ReleaseDir 'ClipNest-root-magisk.zip'
+    $magiskZip = Join-Path $ReleaseDir 'Nezo-root-magisk.zip'
     & python $MakeMagisk --apk $checkApk --out $magiskZip
     if ($LASTEXITCODE -ne 0) { Fail "Magisk 模块打包失败（exit $LASTEXITCODE）" }
     Write-Ok "模块：$magiskZip"

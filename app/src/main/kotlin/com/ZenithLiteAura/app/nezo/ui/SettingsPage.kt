@@ -60,6 +60,8 @@ fun SettingsPage(
     onOpenRules: () -> Unit = {},
 ) {
     val navigate = LocalSettingsNavigate.current
+    val context = LocalContext.current
+    val updateInfo = rememberUpdateInfo()
 
     val autoLabel = when (settings.autoDownload) {
         "off" -> "关闭"
