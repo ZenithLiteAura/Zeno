@@ -1,0 +1,19 @@
+# Gradle / Android
+.gradle/
+build/
+app/build/
+core/build/
+local.properties
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+# 签名文件（发布包用，不公开）
+*.jks
+keystore.properties
+# 日志/临时
+*.log
+pack-logs/
+.DS_Store
+.kotlin/

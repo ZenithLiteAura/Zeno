@@ -1,0 +1,65 @@
+{
+  "global": {
+    "appSettings": {
+      "enableShareDpId": true
+    }
+  },
+  "note": {
+    "noteDetailMap": {
+      "6a9d0eb2000000002a024480": {
+        "note": {
+          "noteId": "6a9d0eb2000000002a024480",
+          "title": "暖隅。奶油暖光里的居家碎片。",
+          "desc": "第一行\n第二行 #居家氛围感拍照",
+          "type": "normal",
+          "user": {
+            "nickname": "Carlos光影实录"
+          },
+          "imageList": [
+            {
+              "urlDefault": "https://sns-img.example.com/a.webp",
+              "infoList": [
+                {"url": "https://sns-img.example.com/a-small.webp"}
+              ]
+            },
+            {
+              "urlDefault": "https://sns-img.example.com/b.webp"
+            },
+            {
+              "urlDefault": "https://sns-img.example.com/a.webp"
+            },
+            {
+              "infoList": [
+                {"url": "https://sns-img.example.com/c.webp"}
+              ]
+            }
+          ],
+          "video": undefined
+        }
+      },
+      "111111111111111111111111": {
+        "note": {
+          "noteId": "111111111111111111111111",
+          "title": "视频笔记标题",
+          "desc": "视频正文",
+          "user": {
+            "nickname": "作者B"
+          },
+          "imageList": [],
+          "video": {
+            "media": {
+              "stream": {
+                "h264": [
+                  {
+                    "masterUrl": "https://sns-video.example.com/v.mp4",
+                    "backupUrls": ["https://sns-video.example.com/v-backup.mp4"]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

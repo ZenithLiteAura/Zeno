@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 仅 debug 构建：给真机自动化测试用的剪贴板注入入口 -->
+    <application>
+        <receiver
+            android:name=".platform.DebugClipReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.clipnest.DEBUG_SET_CLIP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

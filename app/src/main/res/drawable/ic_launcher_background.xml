@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ClipNest Nezo · 自适应图标背景
+     与 tools/make-icons.py 里 render_tile() 的底色同源：
+     对角蓝→粉 线性渐变 + 左上柔光 + 右下暖晕（radial 叠加近似原图的柔焦感）。 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="315"
+                android:centerColor="#D9CDF1"
+                android:endColor="#F7BAD4"
+                android:startColor="#9CC6FA"
+                android:type="linear" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.28"
+                android:centerY="0.12"
+                android:endColor="#00FFFFFF"
+                android:gradientRadius="62%p"
+                android:startColor="#59FFFFFF"
+                android:type="radial" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.88"
+                android:centerY="0.96"
+                android:endColor="#00F2A9C6"
+                android:gradientRadius="58%p"
+                android:startColor="#3DF2A9C6"
+                android:type="radial" />
+        </shape>
+    </item>
+</layer-list>

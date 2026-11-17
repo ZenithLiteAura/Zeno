@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 暴露的目录：导出缓存 + 下载落盘位置（API 26-28 没有 MediaStore 权限时用） -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 导出：cache/export/ -->
+    <cache-path
+        name="export"
+        path="export/" />
+    <!-- 下载临时目录（ZIP 打包中间文件，仅本进程用） -->
+    <cache-path
+        name="download_tmp"
+        path="download_tmp/" />
+
+    <!-- Android 9 及以下：有 WRITE_EXTERNAL_STORAGE 时写公有目录 -->
+    <external-path
+        name="public_pictures"
+        path="Pictures/ClipNest/" />
+    <external-path
+        name="public_movies"
+        path="Movies/ClipNest/" />
+    <external-path
+        name="public_downloads"
+        path="Download/ClipNest/" />
+
+    <!-- 没有写权限时落 App 私有目录，用 FileProvider uri 打开/分享 -->
+    <external-files-path
+        name="private_external"
+        path="clipnest/downloads/" />
+    <files-path
+        name="private_internal"
+        path="clipnest/downloads/" />
+</paths>
