@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import androidx.core.content.edit
 import com.ZenithLiteAura.app.nezo.data.ClipRepo
 import com.ZenithLiteAura.app.nezo.platform.BackgroundClipMonitor
 import com.ZenithLiteAura.app.nezo.platform.CaptureEngine
@@ -32,6 +33,15 @@ object ShizukuClipClient {
     // ── 常量 ──────────────────────────────────────────────────────────────
 
     private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+
+    /** true = 强制走 Exec 模式（便于回退/对比测试）；默认按 API 版本与回收次数判断 */
+    private const val FORCE_EXEC_MONITOR = false
+
+    /** true = 强制回退 UserService 方案（便于对比/排障），优先级最高 */
+    private const val FORCE_USER_SERVICE = false
+
+    private const val PREFS_DEBUG = "nezo_shizuku"
+    private const val KEY_SEEN_INSTALLED = "seen_installed"
     private const val REQUEST_CODE = 0x5A17
     private const val USER_SERVICE_VERSION = 2
     private const val USER_SERVICE_SUFFIX = "clipwatcher"
@@ -65,6 +75,9 @@ object ShizukuClipClient {
     private val STATUS_NO_PERMISSION = Status(State.NO_PERMISSION, "未授权（点此授权）")
     private val STATUS_CONNECTING = Status(State.CONNECTING, "正在连接 Shizuku…")
     private val STATUS_CONNECTED = Status(State.CONNECTED, "已连接 · 离开Nezo也能收录")
+
+    /** Exec 模式（Shizuku.newProcess 起 ClipProbe 子进程）：Android 17 上替代 UserService */
+    private val STATUS_CONNECTED_EXEC = Status(State.CONNECTED, "已连接 · 离开Nezo也能收录（Exec 模式）")
 
     /** root 启动的 Shizuku：连得上但读不到剪贴板（实测 uid=0 + 包归属校验不匹配） */
     private val STATUS_ROOT_UNSUPPORTED = Status(
@@ -102,6 +115,10 @@ object ShizukuClipClient {
     /** root 模式下真的收到过剪贴板内容（说明这台设备 root 也能读，就不报警告） */
     @Volatile
     private var rootModeClipSeen = false
+
+    /** UserService 被系统回收的次数：>=2 时优先 Exec 模式 */
+    @Volatile
+    private var userServiceRecycledCount = 0
 
     private val isMainThread: Boolean
         get() = Looper.myLooper() == Looper.getMainLooper()
@@ -177,6 +194,16 @@ object ShizukuClipClient {
             lastError = reason
             PlatformLog.warn("Shizuku 连接断开：$reason · name=$name · pingBinder=$binderAlive")
             updateStatus(Status(State.ERROR, "连接断开：$reason，正在重试…"))
+
+            if (reason.contains("被回收")) {
+                userServiceRecycledCount++
+                PlatformLog.info(
+                    "UserService 被回收（第 $userServiceRecycledCount 次）→ 将回落到 ExecMonitor" +
+                        "（Shizuku.newProcess + ClipProbe，Android 17 上的替代方案）",
+                )
+                val ctx = appContext
+                if (ctx != null && preferExecMonitor() && tryStartExecMode(ctx)) return
+            }
             scheduleRetry()
         }
 
@@ -236,11 +263,33 @@ object ShizukuClipClient {
         val app = context.applicationContext
         appContext = app
 
+        // Exec 模式（Shizuku.newProcess + ClipProbe）回调：就绪 → 已连接；监督线程退出 → 报错
+        ShizukuExecMonitor.onReady = {
+            mainHandler.post {
+                retryCount = 0
+                if (wantShizuku()) updateStatus(STATUS_CONNECTED_EXEC)
+            }
+        }
+        ShizukuExecMonitor.onStopped = { reason ->
+            mainHandler.post {
+                if (wantShizuku() && !ShizukuExecMonitor.isRunning) {
+                    updateStatus(Status(State.ERROR, "$reason · 请确认 Shizuku 未被系统限制后台"))
+                    // Exec 彻底不可用时回落到 UserService（若 API<33 本来就走它）
+                    val ctx = appContext
+                    if (ctx != null && !connected && !binding) {
+                        PlatformLog.info("Exec 监听已停，回退尝试 UserService")
+                        runCatching { bind(ctx) }
+                    }
+                }
+            }
+        }
+
         runCatching {
             // sticky：如果 Shizuku 已经在运行，注册时会立刻回调一次
             Shizuku.addBinderReceivedListenerSticky {
                 mainHandler.post {
                     PlatformLog.info("Shizuku binder 已就绪")
+                    markSeenInstalled(app)
                     retryCount = 0
                     runCatching { sync(app) }
                 }
@@ -272,7 +321,36 @@ object ShizukuClipClient {
 
     fun currentStatus(): Status = _status.value
 
-    fun isConnected(): Boolean = connected
+    fun isConnected(): Boolean = connected || ShizukuExecMonitor.isRunning
+
+    /** 是否优先走 Exec 模式：Android 13+ 或 UserService 被回收 2 次以上；可用常量强制 */
+    fun preferExecMonitor(): Boolean {
+        if (FORCE_USER_SERVICE) return false
+        // 只在 UserService 被回收 >=2 次（典型：Android 17 上被系统回收）时才改用 Exec 子进程方案；
+        // 不按 SDK 版本一刀切——UserService 的 shell 包 Context 读取在多数机型上更稳（Exec 的 binder 读取部分 ROM 返回 null）。
+        return FORCE_EXEC_MONITOR || userServiceRecycledCount >= 2
+    }
+
+    /** Exec 模式（Shizuku.newProcess + ClipProbe）是否在跑 */
+    fun execModeRunning(): Boolean = ShizukuExecMonitor.isRunning
+
+    /** UserService 被系统回收的累计次数 */
+    fun userServiceRecycled(): Int = userServiceRecycledCount
+
+    /** 尝试切到 Exec 模式（成功则更新状态并返回 true） */
+    private fun tryStartExecMode(context: Context): Boolean {
+        if (!ShizukuExecMonitor.canRun()) return false
+        val started = ShizukuExecMonitor.start(context)
+        if (started) {
+            // Exec 已接手，解掉可能存在的 UserService，避免两条通路重复收录
+            runCatching { unbindUserServiceQuietly() }
+            updateStatus(STATUS_CONNECTED_EXEC)
+            PlatformLog.info("已切换到 Exec 后台监听（Shizuku.newProcess + ClipProbe，替代 UserService）")
+        } else {
+            PlatformLog.warn("Exec 后台监听启动失败，回退 UserService 方案")
+        }
+        return started
+    }
 
     /** Shizuku 远程 uid：-1 未知 / 2000 无线调试(adb) / 0 root */
     fun remoteUid(): Int = remoteUid
@@ -280,13 +358,39 @@ object ShizukuClipClient {
     /** 是否 root 模式（uid=0，实测读不到剪贴板） */
     fun isRootMode(): Boolean = remoteUid == 0
 
-    fun isInstalled(context: Context): Boolean = runCatching {
-        context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
-        true
-    }.getOrElse {
-        // Android 11+ 没在 <queries> 里声明时会抛 NameNotFound；此时退化成「binder 是否可达」
-        isShizukuRunning()
+    /**
+     * 是否装了 Shizuku。
+     *
+     * 不再只靠 `getPackageInfo`：HyperOS / Android 11+ 的包可见性会把已安装误判成「未安装」，
+     * 设置页就会错误显示「去安装」。这里改成「binder 可达 / 有授权 / 历史上摸到过 / 能查到包」任一成立即算装了。
+     */
+    fun isInstalled(context: Context): Boolean {
+        if (isShizukuRunning() || hasPermission()) {
+            markSeenInstalled(context)
+            return true
+        }
+        if (seenInstalled(context)) return true
+        return runCatching {
+            context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
+            true
+        }.getOrDefault(false)
     }
+
+    /** Shizuku binder 是否可达（设置页「去安装 / 已安装」判断用） */
+    fun binderAlive(): Boolean = isShizukuRunning()
+
+    /** 历史上成功摸到过 Shizuku（binder/授权）就记住，避免包可见性导致的误判 */
+    private fun markSeenInstalled(context: Context) {
+        runCatching {
+            context.getSharedPreferences(PREFS_DEBUG, Context.MODE_PRIVATE)
+                .edit { putBoolean(KEY_SEEN_INSTALLED, true) }
+        }
+    }
+
+    private fun seenInstalled(context: Context): Boolean = runCatching {
+        context.getSharedPreferences(PREFS_DEBUG, Context.MODE_PRIVATE)
+            .getBoolean(KEY_SEEN_INSTALLED, false)
+    }.getOrDefault(false)
 
     fun isShizukuRunning(): Boolean = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
 
@@ -338,6 +442,9 @@ object ShizukuClipClient {
         val current = detect(context)
         PlatformLog.info("开启 Shizuku 后台监听，当前状态=${current.state}")
 
+        // Android 13+ / UserService 被回收过：优先 Exec 模式（Shizuku.newProcess + ClipProbe）
+        if (preferExecMonitor() && tryStartExecMode(context)) return true
+
         return when (current.state) {
             State.NOT_INSTALLED -> {
                 updateStatus(STATUS_NOT_INSTALLED)
@@ -361,7 +468,7 @@ object ShizukuClipClient {
             }
 
             State.CONNECTED -> {
-                updateStatus(STATUS_CONNECTED)
+                updateStatus(if (ShizukuExecMonitor.isRunning) STATUS_CONNECTED_EXEC else STATUS_CONNECTED)
                 true
             }
 
@@ -381,6 +488,7 @@ object ShizukuClipClient {
     fun disable() {
         runCatching { ClipRepo.updateSettings { it.copy(shizukuMonitor = false) } }
         stop()
+        userServiceRecycledCount = 0
         appContext?.let { ctx -> runOnMain { updateStatus(detect(ctx)) } }
         PlatformLog.info("已关闭 Shizuku 后台监听")
     }
@@ -407,8 +515,13 @@ object ShizukuClipClient {
             return
         }
 
+        // 优先 Exec 模式（Android 17 / UserService 被回收过的设备）
+        if (preferExecMonitor() && tryStartExecMode(context)) return
+
         when (val current = detect(context)) {
             STATUS_CONNECTED -> updateStatus(STATUS_CONNECTED)
+
+            STATUS_CONNECTED_EXEC -> updateStatus(STATUS_CONNECTED_EXEC)
 
             STATUS_ROOT_UNSUPPORTED -> updateStatus(STATUS_ROOT_UNSUPPORTED)
 
@@ -454,6 +567,7 @@ object ShizukuClipClient {
     }
 
     private fun stopInternal() {
+        runCatching { ShizukuExecMonitor.stop() }
         val api = watcher
         if (api != null) runCatching { api.stop() }
         watcher = null
@@ -476,6 +590,7 @@ object ShizukuClipClient {
     // ── 内部 ──────────────────────────────────────────────────────────────
 
     private fun detect(context: Context): Status {
+        if (ShizukuExecMonitor.isRunning) return STATUS_CONNECTED_EXEC
         if (connected) {
             return if (remoteUid == 0 && !rootModeClipSeen) STATUS_ROOT_UNSUPPORTED else STATUS_CONNECTED
         }
@@ -586,6 +701,8 @@ object ShizukuClipClient {
     private fun scheduleRetry() {
         val context = appContext ?: return
         if (!wantShizuku()) return
+        // 能走 Exec 就别再重试 UserService 了
+        if (preferExecMonitor() && tryStartExecMode(context)) return
         if (retryCount >= RETRY_LIMIT) {
             PlatformLog.warn("Shizuku 重连已达上限（$RETRY_LIMIT 次），保持降级")
             updateStatus(
@@ -610,8 +727,8 @@ object ShizukuClipClient {
     private fun wantShizuku(): Boolean =
         runCatching { ClipRepo.settings.value.shizukuMonitor }.getOrDefault(false)
 
-    private fun quitQuietly() {
-        // 不动用户设置，只释放 binder（比如 Shizuku 停着，等它起来再自动连）
+    /** 只解绑 UserService（不碰 Exec 监听），用于「切到 Exec 模式」时 */
+    private fun unbindUserServiceQuietly() {
         val api = watcher
         if (api != null) runCatching { api.stop() }
         watcher = null
@@ -620,6 +737,12 @@ object ShizukuClipClient {
         boundArgs = null
         connected = false
         binding = false
+    }
+
+    private fun quitQuietly() {
+        // 不动用户设置，只释放 binder 与 Exec 子进程（比如 Shizuku 停着，等它起来再自动连）
+        runCatching { ShizukuExecMonitor.stop() }
+        unbindUserServiceQuietly()
         remoteUid = -1
         rootModeClipSeen = false
     }

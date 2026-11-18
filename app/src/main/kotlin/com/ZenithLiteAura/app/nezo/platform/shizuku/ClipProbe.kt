@@ -6,140 +6,228 @@ import android.util.Base64
 import android.util.Log
 
 /**
- * `app_process` 入口：在 **uid=2000（shell）** 的独立进程里读一次剪贴板。
+ * `app_process` 入口：以 Shizuku 的 shell 身份读剪贴板。
  *
- * 为什么需要它：Shizuku 若以 root 启动，UserService 进程是 uid=0，
- * 系统对「root 进程 + 包归属」的剪贴板读取会返回 null（appop 允许但内容为空）。
- * 如果设备上能通过 `su 2000 -c ...` 切到 uid=2000，就用这个类读，再由 shell 侧回传。
+ * 两种模式：
+ * 1. 单次（默认）：读一次，打印一行结果，退出。供 [RootShellFallback] 使用。
+ * 2. `--watch <ms>`：长驻循环，给 [ShizukuExecMonitor] 用：
+ *    - 启动先打印 `READY`；
+ *    - 内容变化时打印 `OK:<base64(UTF-8)>`；
+ *    - 剪贴板变空时打印一次 `NULL`；
+ *    - 每条都 flush，主进程按行读。
  *
- * 输出（stdout 单行，供 [RootShellFallback] 解析）：
- * - `OK:<base64(UTF-8 文本)>` 读到文本
- * - `NULL` 剪贴板为空 / 不是文本
- * - `ERR:<说明>` 失败
+ * 关键实现：**优先走 `ServiceManager` + `IClipboard` binder（callingPackage=com.android.shell）**，
+ * 完全不需要 `ActivityThread`/`Context` —— app_process 里 `ActivityThread.systemMain()` 在
+ * 非 system 进程会抛 `InvocationTargetException`，Android 17 上更不可靠。Context 只作兜底。
  *
- * 手动验证命令（设备上 root shell 里）：
+ * 手动验证（设备 shell 里），把 `<apk>` 换成 `pm path com.ZenithLiteAura.app.nezo` 的路径：
  * ```
- * CLASSPATH=/data/app/.../base.apk app_process /system/bin \
- *   com.ZenithLiteAura.app.nezo.platform.shizuku.ClipProbe
+ * CLASSPATH=<apk> app_process /system/bin com.ZenithLiteAura.app.nezo.platform.shizuku.ClipProbe --watch 1500
  * ```
  */
 object ClipProbe {
 
     private const val TAG = "NezoShizuku"
+    private const val SHELL_PACKAGE = "com.android.shell"
+
+    @Volatile
+    private var running: Boolean = true
 
     @JvmStatic
     fun main(args: Array<String>) {
         val uid = android.os.Process.myUid()
-        Log.i(TAG, "[ClipProbe] 启动 uid=$uid args=${args.joinToString(" ")}")
-
-        // 首选：完全绕开 Context，直接走 IClipboard binder（callingPackage=com.android.shell）
-        // uid=2000 进程用 shell 包名调用时归属校验能过，这是唯一可靠的路径：
-        // app_process 里 ActivityThread.systemMain() 在 uid!=1000 时会抛 InvocationTargetException。
-        val binderResult = readViaBinder(uid)
-        if (binderResult != null) {
-            println(binderResult)
-            Log.i(TAG, "[ClipProbe] 结果(binder)：${binderResult.take(80)}")
+        if (args.firstOrNull() == "--watch") {
+            val interval = args.getOrNull(1)?.toLongOrNull()?.coerceIn(300L, 10_000L) ?: 1500L
+            Log.i(TAG, "[ClipProbe] watch 模式 uid=$uid interval=${interval}ms")
+            watch(interval)
             return
         }
 
-        val result = try {
-            val context = systemContext()
-            if (context == null) {
-                "ERR:no-system-context(uid=$uid)"
-            } else {
-                val manager = context.getSystemService(ClipboardManager::class.java)
-                if (manager == null) {
-                    "ERR:no-clipboard-manager(uid=$uid)"
-                } else {
-                    val hasClip = runCatching { manager.hasPrimaryClip() }.getOrNull()
-                    val clip = runCatching { manager.primaryClip }
-                    val clipError = clip.exceptionOrNull()
-                    val data = clip.getOrNull()
-                    Log.i(
-                        TAG,
-                        "[ClipProbe] uid=$uid pkg=${context.packageName} hasClip=$hasClip " +
-                            "clip=${data != null} err=${clipError?.javaClass?.simpleName}:${clipError?.message}",
-                    )
-
-                    when {
-                        clipError != null -> "ERR:${clipError.javaClass.simpleName}:${clipError.message}"
-                        data == null || data.itemCount <= 0 -> "NULL"
-                        else -> {
-                            val item = data.getItemAt(0)
-                            val text = item.text?.toString() ?: item.coerceToText(context)?.toString()
-                            if (text.isNullOrEmpty()) {
-                                "NULL"
-                            } else {
-                                "OK:" + Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
-                            }
-                        }
-                    }
-                }
+        Log.i(TAG, "[ClipProbe] 单次模式 uid=$uid")
+        val output = try {
+            when (val result = probeOnce(uid)) {
+                is ProbeResult.Text -> "OK:" + encode(result.value)
+                ProbeResult.Empty -> "NULL"
+                ProbeResult.Unavailable -> "ERR:clipboard-unavailable(uid=$uid)"
             }
         } catch (t: Throwable) {
             "ERR:${t.javaClass.simpleName}:${t.message}"
         }
+        emit(output)
+        Log.i(TAG, "[ClipProbe] 结果：${output.take(80)}")
+    }
 
-        // 单行输出给 shell 侧解析
-        println(result)
-        Log.i(TAG, "[ClipProbe] 结果：${result.take(80)}")
+    // ── watch 模式 ────────────────────────────────────────────────────────
+
+    private fun watch(intervalMs: Long) {
+        running = true
+        runCatching {
+            Runtime.getRuntime().addShutdownHook(Thread { running = false })
+        }
+
+        emit("READY")
+        var lastText: String? = null
+        var hadText = false
+        var lastUnavailable = false
+
+        while (running) {
+            val result = try {
+                probeOnce(android.os.Process.myUid())
+            } catch (t: Throwable) {
+                Log.w(TAG, "[ClipProbe] watch 读取异常：${t.javaClass.simpleName}: ${t.message}")
+                ProbeResult.Unavailable
+            }
+
+            when (result) {
+                is ProbeResult.Text -> {
+                    if (result.value != lastText) {
+                        lastText = result.value
+                        hadText = true
+                        lastUnavailable = false
+                        emit("OK:" + encode(result.value))
+                    }
+                }
+
+                ProbeResult.Empty -> {
+                    if (hadText || !lastUnavailable) {
+                        hadText = false
+                        lastText = null
+                        lastUnavailable = false
+                        emit("NULL")
+                    }
+                }
+
+                ProbeResult.Unavailable -> {
+                    if (!lastUnavailable) {
+                        lastUnavailable = true
+                        emit("ERR:clipboard-unavailable")
+                    }
+                }
+            }
+
+            try {
+                Thread.sleep(intervalMs)
+            } catch (_: InterruptedException) {
+                running = false
+            }
+        }
+        Log.i(TAG, "[ClipProbe] watch 退出")
+    }
+
+    private fun emit(line: String) {
+        runCatching {
+            println(line)
+            System.out.flush()
+        }
+    }
+
+    private fun encode(text: String): String =
+        Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+
+    // ── 读取 ──────────────────────────────────────────────────────────────
+
+    private sealed class ProbeResult {
+        data class Text(val value: String) : ProbeResult()
+        object Empty : ProbeResult()
+        object Unavailable : ProbeResult()
+    }
+
+    private var binderFailLogs = 0
+
+    private fun probeOnce(uid: Int): ProbeResult {
+        // ① 纯 binder：不需要 Context，是 uid=2000 下最可靠的一条
+        when (val binder = readViaBinder()) {
+            is ProbeResult.Text -> return binder
+            ProbeResult.Empty -> return ProbeResult.Empty
+            ProbeResult.Unavailable -> Unit
+        }
+
+        // ② 兜底：系统 Context（部分 ROM 上可用）
+        val context = systemContext() ?: return ProbeResult.Unavailable
+        val manager = runCatching { context.getSystemService(ClipboardManager::class.java) }.getOrNull()
+            ?: return ProbeResult.Unavailable
+
+        val clip = runCatching { manager.primaryClip }
+        clip.exceptionOrNull()?.let {
+            Log.w(TAG, "[ClipProbe] Context 读剪贴板异常（uid=$uid）：${it.javaClass.simpleName}: ${it.message}")
+        }
+        val data = clip.getOrNull() ?: return ProbeResult.Empty
+        if (data.itemCount <= 0) return ProbeResult.Empty
+        val item = data.getItemAt(0)
+        val text = item.text?.toString() ?: item.coerceToText(context)?.toString()
+        return if (text.isNullOrEmpty()) ProbeResult.Empty else ProbeResult.Text(text)
     }
 
     /**
-     * 直接用 ServiceManager + IClipboard.Stub 读剪贴板（不需要 Context）。
-     *
-     * 返回 null 表示这条路不可用（拿不到服务/反射失败），交给 Context 兜底。
+     * 直接走 `ServiceManager` + `IClipboard$Stub`，callingPackage 传 `com.android.shell`。
+     * 兼容 Android 10~17 的 `getPrimaryClip(String pkg, String attributionTag, int userId[, int deviceId])`。
      */
-    private fun readViaBinder(uid: Int): String? = try {
-        val smClass = Class.forName("android.os.ServiceManager")
-        val binder = smClass.getMethod("getService", String::class.java).invoke(null, "clipboard")
-            as? android.os.IBinder ?: return null
+    private fun readViaBinder(): ProbeResult = try {
+        val serviceManager = Class.forName("android.os.ServiceManager")
+        val binder = serviceManager.getMethod("getService", String::class.java)
+            .invoke(null, "clipboard") as? android.os.IBinder
+            ?: return ProbeResult.Unavailable
 
         val stubClass = Class.forName("android.content.IClipboard\$Stub")
-        val asInterface = stubClass.getMethod("asInterface", android.os.IBinder::class.java)
-        val service = asInterface.invoke(null, binder) ?: return null
+        val service = stubClass.getMethod("asInterface", android.os.IBinder::class.java)
+            .invoke(null, binder)
+            ?: return ProbeResult.Unavailable
 
-        // Android 10~17 的签名：getPrimaryClip(String pkg, String attributionTag, int userId[, int deviceId])
         val methods = service.javaClass.methods.filter { it.name == "getPrimaryClip" }
-        Log.i(TAG, "[ClipProbe] binder 可用方法：${methods.map { it.parameterTypes.size }}")
+        if (methods.isEmpty()) return ProbeResult.Unavailable
 
+        var sawEmpty = false
         var lastError: String? = null
-        for (m in methods) {
-            val types = m.parameterTypes
-            val args = when (types.size) {
-                3 -> arrayOf<Any?>("com.android.shell", null, 0)
-                4 -> arrayOf<Any?>("com.android.shell", null, 0, 0)
+        for (method in methods) {
+            val args = when (method.parameterTypes.size) {
+                3 -> arrayOf<Any?>(SHELL_PACKAGE, null, 0)
+                4 -> arrayOf<Any?>(SHELL_PACKAGE, null, 0, 0)
                 else -> continue
             }
-            val r = runCatching { m.invoke(service, *args) }
-            val err = r.exceptionOrNull()
-            if (err != null) {
-                lastError = "${err.javaClass.simpleName}:${err.message}"
+            val result = runCatching { method.invoke(service, *args) }
+            val error = result.exceptionOrNull()
+            if (error != null) {
+                lastError = "${error.javaClass.simpleName}:${error.message}"
                 continue
             }
-            @Suppress("UNCHECKED_CAST")
-            val clip = r.getOrNull() as? android.content.ClipData ?: return "NULL"
-            if (clip.itemCount <= 0) return "NULL"
+            val clip = result.getOrNull() as? android.content.ClipData
+            if (clip == null || clip.itemCount <= 0) {
+                sawEmpty = true
+                continue
+            }
             val item = clip.getItemAt(0)
             val text = item.text?.toString() ?: item.coerceToText(null)?.toString()
-            if (text.isNullOrEmpty()) return "NULL"
-            return "OK:" + Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            if (text.isNullOrEmpty()) {
+                sawEmpty = true
+                continue
+            }
+            return ProbeResult.Text(text)
         }
-        Log.w(TAG, "[ClipProbe] binder 调用失败：$lastError")
-        null
+
+        if (lastError != null && binderFailLogs < 3) {
+            binderFailLogs++
+            Log.w(TAG, "[ClipProbe] binder getPrimaryClip 失败：$lastError")
+        }
+        if (sawEmpty) ProbeResult.Empty else ProbeResult.Unavailable
     } catch (t: Throwable) {
-        Log.w(TAG, "[ClipProbe] binder 路径不可用：${t.javaClass.simpleName}: ${t.message}")
-        null
+        if (binderFailLogs < 3) {
+            binderFailLogs++
+            Log.w(TAG, "[ClipProbe] binder 路径不可用：${t.javaClass.simpleName}: ${t.message}")
+        }
+        ProbeResult.Unavailable
     }
 
-    /** app_process 里没有现成 Context：用 ActivityThread.systemMain() 拿系统 Context */
+    /** app_process 里拿系统 Context（只作兜底；非 system 进程可能失败） */
     private fun systemContext(): Context? = try {
         val atClass = Class.forName("android.app.ActivityThread")
         val activityThread = runCatching { atClass.getMethod("currentActivityThread").invoke(null) }.getOrNull()
             ?: atClass.getMethod("systemMain").invoke(null)
         atClass.getMethod("getSystemContext").invoke(activityThread) as? Context
     } catch (t: Throwable) {
-        Log.w(TAG, "[ClipProbe] 取系统 Context 失败：${t.javaClass.simpleName}: ${t.message}")
+        if (binderFailLogs < 3) {
+            binderFailLogs++
+            Log.w(TAG, "[ClipProbe] 取系统 Context 失败：${t.javaClass.simpleName}: ${t.message}")
+        }
         null
     }
 }

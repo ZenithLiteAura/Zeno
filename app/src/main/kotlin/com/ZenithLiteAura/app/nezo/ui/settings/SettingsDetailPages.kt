@@ -162,13 +162,14 @@ private fun ShizukuPage(settings: AppSettings, actions: UiActions) {
                 )
                 SettingsLabelRow(
                     title = "打开 Shizuku",
-                    value = if (rootMode) "改无线调试" else "去安装",
+                    // 修复误判：HyperOS/Android 11+ 包可见性会让 getPackageInfo 认为「未安装」
+                    value = PlatformBridge.shizukuOpenLabel(context),
                     onClick = {
-                        if (PlatformBridge.shizukuIsRootMode()) {
-                            // root 启动的 Shizuku 读不到剪贴板，引导用户去 Shizuku 里改用无线调试
-                            PlatformBridge.openShizukuApp(context)
-                        } else {
-                            PlatformBridge.openShizukuWebsite(context)
+                        when {
+                            // root 启动的 Shizuku 读不到剪贴板，引导去 Shizuku 里改用无线调试
+                            PlatformBridge.shizukuIsRootMode() -> PlatformBridge.openShizukuApp(context)
+                            !PlatformBridge.shizukuInstalled(context) -> PlatformBridge.openShizukuWebsite(context)
+                            else -> PlatformBridge.openShizukuApp(context)
                         }
                     },
                 )

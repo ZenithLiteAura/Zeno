@@ -215,6 +215,32 @@ object PlatformBridge {
     /** 当前 Shizuku 是否 root 模式（= 后台读剪贴板不可用） */
     fun shizukuIsRootMode(): Boolean = runCatching { ShizukuClipClient.isRootMode() }.getOrDefault(false)
 
+    /**
+     * 是否检测到 Shizuku 已安装/可用。
+     * 用于设置页「去安装」文案判断：只要 binder 可达 / 有授权 / 曾摸到过 / 能查到包，任一成立就算装了。
+     */
+    fun shizukuInstalled(context: Context): Boolean =
+        runCatching { ShizukuClipClient.isInstalled(context) }.getOrDefault(false)
+
+    /** Exec 模式（Shizuku.newProcess + ClipProbe 子进程）是否在跑（Android 17 上替代 UserService） */
+    fun shizukuExecRunning(): Boolean =
+        runCatching { ShizukuClipClient.execModeRunning() }.getOrDefault(false)
+
+    /** UserService 被系统回收的累计次数（>=2 会自动切 Exec 模式） */
+    fun shizukuUserServiceRecycled(): Int =
+        runCatching { ShizukuClipClient.userServiceRecycled() }.getOrDefault(0)
+
+    /**
+     * 设置页「打开 Shizuku」右侧文案：
+     * root 模式 → 改无线调试；Exec 模式 → Exec 模式；已安装 → 已安装；确实摸不到 → 去安装
+     */
+    fun shizukuOpenLabel(context: Context): String = when {
+        shizukuIsRootMode() -> "改无线调试"
+        shizukuExecRunning() -> "Exec 模式"
+        shizukuInstalled(context) -> "已安装"
+        else -> "去安装"
+    }
+
     // ── 检查更新（GitHub Releases） ───────────────────────────────────────
 
     /** 最近一次检查结果：UI 直接 `collectAsState()` 拿到 checking/hasUpdate/latestVersion/error */
