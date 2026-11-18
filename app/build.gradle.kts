@@ -11,8 +11,8 @@ android {
         applicationId = "com.ZenithLiteAura.app.nezo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "1.2.3"
+        versionCode = 11
+        versionName = "1.2.4"
     }
 
     signingConfigs {

@@ -63,6 +63,14 @@ class ShizukuClipService : IClipWatcher.Stub {
             Log.w(TAG, "start() 收到空回调，忽略")
             return
         }
+        // ★ uid=0（Shizuku root 模式）绝对不能读剪贴板：
+        // 系统会以 "Calling uid 0 does not own package android" 为由「清空剪贴板」，
+        // 用户刚复制的内容会直接消失。直接返回，保持降级。
+        if (android.os.Process.myUid() == 0) {
+            Log.w(TAG, "uid=0（root 模式）：不读剪贴板、不轮询（否则系统会清空剪贴板）")
+            return
+        }
+
         runCatching {
             callback = cb
             val manager = resolveClipboard()
@@ -88,8 +96,12 @@ class ShizukuClipService : IClipWatcher.Stub {
             // 轮询兜底：OPPO/HyperOS 等 OEM 可能不向 shell 进程派发 change 事件
             startPolling()
 
-            // root 模式（uid=0）大概率读不到剪贴板 → 尝试切 uid=2000 跑 ClipProbe
-            if (Process.myUid() == 0) startRootFallback()
+            // 【禁用 root 兜底】实测：uid=0 进程读剪贴板会让 ClipboardService 直接「清空剪贴板」
+            // （日志 Could not grant permission to primary clip. Clearing clipboard. pkg=android），
+            // 这会把用户刚复制的内容弄丢，副作用远大于收益 → 一律不启动。
+            if (Process.myUid() == 0) {
+                Log.w(TAG, "Shizuku 以 root 运行：本机不支持后台读剪贴板（请改用无线调试启动 Shizuku 或刷 Magisk 模块）")
+            }
         }.onFailure { Log.e(TAG, "start 失败", it) }
     }
 
@@ -115,6 +127,19 @@ class ShizukuClipService : IClipWatcher.Stub {
      */
     private fun resolveClipboard(): ClipboardManager? {
         systemClipboard?.let { return it }
+
+        // uid=2000（shell / 无线调试）时剪贴板按「uid + 包归属」校验：
+        // 必须用 com.android.shell 的包 Context；pkg=android 的系统 Context 会「允许但返回空」。
+        if (android.os.Process.myUid() == 2000) {
+            shellPackageContext()?.let { ctx ->
+                runCatching { ctx.getSystemService(ClipboardManager::class.java) }.getOrNull()?.let {
+                    systemClipboard = it
+                    Log.i(TAG, "uid=2000：使用 com.android.shell 包 Context（pkg=${ctx.packageName}）")
+                    return it
+                }
+            }
+            Log.w(TAG, "uid=2000：拿不到 com.android.shell 包 Context，回退系统 Context/binder")
+        }
 
         systemContext()?.let { ctx ->
             runCatching { ctx.getSystemService(ClipboardManager::class.java) }.getOrNull()?.let {
@@ -181,6 +206,47 @@ class ShizukuClipService : IClipWatcher.Stub {
         pollThread = null
     }
 
+    /** 用隐藏 API 取 com.android.shell 的包 Context（uid=2000 下可用） */
+    private fun shellPackageContext(): Context? = runCatching {
+        val atClass = Class.forName("android.app.ActivityThread")
+        val at = runCatching { atClass.getMethod("currentActivityThread").invoke(null) }.getOrNull()
+            ?: atClass.getMethod("systemMain").invoke(null)
+        val systemCtx = atClass.getMethod("getSystemContext").invoke(at) as Context
+        val userHandleClass = Class.forName("android.os.UserHandle")
+        val user0 = userHandleClass.getMethod("getUserHandleForUid", Int::class.javaPrimitiveType)
+            .invoke(null, 0)
+        val m = Context::class.java.getMethod(
+            "createPackageContextAsUser", String::class.java, Int::class.javaPrimitiveType, userHandleClass,
+        )
+        m.invoke(systemCtx, "com.android.shell", 0, user0) as? Context
+    }.getOrNull()
+
+    /**
+     * 直接走 IClipboard binder（不需要 Context）。
+     * uid=2000 + callingPackage=com.android.shell 时归属校验能过；
+     * Android 14+ 的签名是 (String pkg, String attributionTag, int userId, int deviceId)。
+     */
+    private fun readViaBinder(): android.content.ClipData? = runCatching {
+        val smClass = Class.forName("android.os.ServiceManager")
+        val binder = smClass.getMethod("getService", String::class.java).invoke(null, "clipboard")
+            as? android.os.IBinder ?: return@runCatching null
+        val stubClass = Class.forName("android.content.IClipboard\$Stub")
+        val service = stubClass.getMethod("asInterface", android.os.IBinder::class.java)
+            .invoke(null, binder) ?: return@runCatching null
+
+        for (m in service.javaClass.methods.filter { it.name == "getPrimaryClip" }) {
+            val args: Array<Any?> = when (m.parameterTypes.size) {
+                3 -> arrayOf("com.android.shell", null, 0)
+                4 -> arrayOf("com.android.shell", null, 0, 0)
+                else -> continue
+            }
+            val r = runCatching { m.invoke(service, *args) }
+            val clip = r.getOrNull() as? android.content.ClipData ?: continue
+            if (clip.itemCount > 0) return@runCatching clip
+        }
+        null
+    }.getOrNull()
+
     private fun removeListener() {
         val manager = clipboard
         val current = listener
@@ -195,8 +261,12 @@ class ShizukuClipService : IClipWatcher.Stub {
     private fun pushClipboard() {
         runCatching {
             val cb = callback ?: return
-            val manager = clipboard ?: resolveClipboard()?.also { clipboard = it } ?: return
-            val clip = manager.primaryClip ?: return
+            val manager = clipboard ?: resolveClipboard()?.also { clipboard = it }
+            // Context 路径可能抛 SecurityException（包名归属不匹配），不能把异常当"没有内容"直接返回，
+            // 必须落到 binder 直读（callingPackage=com.android.shell + 进程 uid=2000 才能过校验）
+            val fromContext = runCatching { manager?.primaryClip }.getOrNull()
+            val binderClip = if (fromContext == null && android.os.Process.myUid() == 2000) readViaBinder() else null
+            val clip = fromContext ?: binderClip ?: return
             if (clip.itemCount <= 0) return
 
             val item = clip.getItemAt(0)
@@ -227,7 +297,10 @@ class ShizukuClipService : IClipWatcher.Stub {
 
     // ── root 模式兜底 ─────────────────────────────────────────────────────
 
+    @Suppress("unused")
     private fun startRootFallback() {
+        // 【已禁用】见 start() 里的说明：uid=0 读剪贴板会触发系统清空剪贴板。
+        if (true) return
         if (rootFallback != null) return
         val apkPath = runCatching { appContext?.applicationInfo?.sourceDir }.getOrNull()
         Log.i(TAG, "[root-fallback] 检测到 uid=0（root 模式），APK=$apkPath")
