@@ -7,7 +7,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * 抖音作品解析器（Android 原生版，逐段移植自 `hellotik-douyin-clone/src/resolver/resolve.py`）。
+ * 抖音作品解析器（Android 原生实现）。
  *
  * 链路：
  * 1. 从分享文案/链接里定位 aweme_id（短链先跟随 302）；

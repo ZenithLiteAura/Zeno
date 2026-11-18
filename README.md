@@ -15,7 +15,7 @@
 |---|---|
 | 应用名 | Nezo |
 | 包名 | `com.ZenithLiteAura.app.nezo` |
-| 版本 | 1.2.2（versionCode 9） |
+| 版本 | 1.2.3（versionCode 10） |
 | 要求 | Android 8.0+（minSdk 26，targetSdk 37） |
 | 界面 | Kotlin + Jetpack Compose + MiUiX（HyperOS 液态玻璃风格） |
 
@@ -112,7 +112,6 @@ Nezo/
 | [NexioSchedule](https://github.com/HaoZai000/NexioSchedule) | HaoZai000 | 底栏（dock）连续曲率胶囊与手势实现移植自该项目，整体视觉参考 |
 | [MiUiX](https://github.com/compose-miuix-ui/miuix) | Yukonga | Compose 组件库 |
 | [Shizuku](https://github.com/RikkaApps/Shizuku) | RikkaApps | shell 进程后台剪贴板 |
-| [hellotik-douyin-clone](https://www.hellotik.app/) | — | 抖音分享页解析与图片 ZIP 链路协议参考 |
 
 ---
 

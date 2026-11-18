@@ -145,23 +145,7 @@ fun DownloadPage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Button(
-                        onClick = {
-                            val text = input.trim()
-                            if (text.isEmpty()) {
-                                onToast("先粘一个作品链接（抖音 / 小红书 / B站 / 快手）")
-                            } else {
-                                controller.resolve(text)
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1.7f)
-                            .height(44.dp),
-                        // 主操作：主色蓝底强调（用户要求第一行按钮蓝底）
-                        colors = ButtonDefaults.buttonColorsPrimary(),
-                    ) {
-                        Text("解析链接")
-                    }
+                    // 次级操作在左，主操作（解析链接·蓝底）在右
                     TextButton(
                         text = "读剪贴板",
                         onClick = {
@@ -177,6 +161,23 @@ fun DownloadPage(
                             .weight(1f)
                             .height(44.dp),
                     )
+                    Button(
+                        onClick = {
+                            val text = input.trim()
+                            if (text.isEmpty()) {
+                                onToast("先粘一个作品链接（抖音 / 小红书 / B站 / 快手）")
+                            } else {
+                                controller.resolve(text)
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1.7f)
+                            .height(44.dp),
+                        // 主操作：主色蓝底强调
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) {
+                        Text("解析链接")
+                    }
                 }
                 if (resolving) {
                     Spacer(Modifier.height(10.dp))
@@ -368,8 +369,9 @@ private fun WorkCard(
 
             Spacer(Modifier.height(8.dp))
             PickRow(title = "命名规则", value = namingLabel, onClick = onNamingClick)
-            // 清晰度：有可选清晰度才显示（图片作品 qualities 为空）
-            val hasQualities = work.qualities.isNotEmpty()
+            // 清晰度：视频作品始终显示一行（qualities 可能为空，用 videoQuality 兜底）；
+            // 图片作品没有清晰度概念，不显示
+            val hasQualities = !isImage
             if (hasQualities) {
                 PickRow(
                     title = "清晰度",

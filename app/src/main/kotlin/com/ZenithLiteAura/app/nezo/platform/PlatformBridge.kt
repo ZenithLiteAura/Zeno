@@ -194,6 +194,27 @@ object PlatformBridge {
         }.onFailure { PlatformLog.warn("打开 Shizuku 官网失败：${it.message}") }
     }
 
+    /**
+     * 拉起 Shizuku 应用主界面：用于「Shizuku 以 root 运行、读不到剪贴板」时，
+     * 引导用户改成「无线调试」方式启动 Shizuku。找不到入口时回落到官网。
+     */
+    fun openShizukuApp(context: Context) {
+        runCatching {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+            val intent = launchIntent
+                ?: Intent(Intent.ACTION_VIEW, "https://shizuku.rikka.app/download/".toUri())
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            PlatformLog.info("已尝试拉起 Shizuku 应用")
+        }.onFailure { PlatformLog.warn("打开 Shizuku 应用失败：${it.message}") }
+    }
+
+    /** Shizuku 远程 uid：-1 未知 / 2000 无线调试(adb) / 0 root（root 模式读不到剪贴板） */
+    fun shizukuRemoteUid(): Int = runCatching { ShizukuClipClient.remoteUid() }.getOrDefault(-1)
+
+    /** 当前 Shizuku 是否 root 模式（= 后台读剪贴板不可用） */
+    fun shizukuIsRootMode(): Boolean = runCatching { ShizukuClipClient.isRootMode() }.getOrDefault(false)
+
     // ── 检查更新（GitHub Releases） ───────────────────────────────────────
 
     /** 最近一次检查结果：UI 直接 `collectAsState()` 拿到 checking/hasUpdate/latestVersion/error */

@@ -129,6 +129,7 @@ private fun ShizukuPage(settings: AppSettings, actions: UiActions) {
     val status by PlatformBridge.shizukuStatusFlow.collectAsState()
     // 状态只显示短值（完整文案太长会挤标题行）
     val shortStatus = when {
+        status.contains("root 运行") -> "root 模式 · 读不到剪贴板"
         status.contains("已连接") -> "已连接"
         status.contains("未授权") -> "未授权"
         status.contains("未安装") -> "未安装"
@@ -136,6 +137,7 @@ private fun ShizukuPage(settings: AppSettings, actions: UiActions) {
         status.contains("正在连接") -> "连接中"
         else -> status
     }
+    val rootMode = PlatformBridge.shizukuIsRootMode()
     DetailList {
         item(key = "shizuku") {
             SettingsGroup("后台自动监听") {
@@ -158,8 +160,15 @@ private fun ShizukuPage(settings: AppSettings, actions: UiActions) {
                 )
                 SettingsLabelRow(
                     title = "打开 Shizuku",
-                    value = "去安装",
-                    onClick = { PlatformBridge.openShizukuWebsite(context) },
+                    value = if (rootMode) "改无线调试" else "去安装",
+                    onClick = {
+                        if (PlatformBridge.shizukuIsRootMode()) {
+                            // root 启动的 Shizuku 读不到剪贴板，引导用户去 Shizuku 里改用无线调试
+                            PlatformBridge.openShizukuApp(context)
+                        } else {
+                            PlatformBridge.openShizukuWebsite(context)
+                        }
+                    },
                 )
             }
         }
@@ -353,7 +362,6 @@ private val THANKS = listOf(
     ThanksEntry("NexioSchedule", "GitHub", "https://github.com/HaoZai000/NexioSchedule"),
     ThanksEntry("MiUiX", "GitHub", "https://github.com/compose-miuix-ui/miuix"),
     ThanksEntry("Shizuku", "GitHub", "https://github.com/RikkaApps/Shizuku"),
-    ThanksEntry("hellotik-douyin-clone", "本地", ""),
 )
 
 @Composable

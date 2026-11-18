@@ -10,7 +10,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
-import com.ZenithLiteAura.app.nezo.BuildConfig
 import com.ZenithLiteAura.app.nezo.data.ClipRepo
 import com.ZenithLiteAura.app.nezo.platform.BackgroundClipMonitor
 import com.ZenithLiteAura.app.nezo.platform.CaptureEngine
@@ -49,6 +48,9 @@ object ShizukuClipClient {
         CONNECTING,
         CONNECTED,
 
+        /** Shizuku 以 root（uid=0）启动：能连上、但系统不会把剪贴板内容给 root 进程 */
+        ROOT_MODE_UNSUPPORTED,
+
         /** 可用但连不上（Android 17 官方 Shizuku bug 等） */
         UNAVAILABLE,
         ERROR,
@@ -63,6 +65,12 @@ object ShizukuClipClient {
     private val STATUS_NO_PERMISSION = Status(State.NO_PERMISSION, "未授权（点此授权）")
     private val STATUS_CONNECTING = Status(State.CONNECTING, "正在连接 Shizuku…")
     private val STATUS_CONNECTED = Status(State.CONNECTED, "已连接 · 离开Nezo也能收录")
+
+    /** root 启动的 Shizuku：连得上但读不到剪贴板（实测 uid=0 + 包归属校验不匹配） */
+    private val STATUS_ROOT_UNSUPPORTED = Status(
+        State.ROOT_MODE_UNSUPPORTED,
+        "Shizuku 以 root 运行，读不到剪贴板 · 请改用「无线调试」启动 Shizuku，或刷 Magisk 模块",
+    )
 
     // ── 运行状态 ──────────────────────────────────────────────────────────
 
@@ -86,6 +94,14 @@ object ShizukuClipClient {
     private var lastError = ""
     private var lastText = ""
     private var lastCaptureAt = 0L
+
+    /** Shizuku 远程 uid：2000 = adb/无线调试模式；0 = root 模式 */
+    @Volatile
+    private var remoteUid = -1
+
+    /** root 模式下真的收到过剪贴板内容（说明这台设备 root 也能读，就不报警告） */
+    @Volatile
+    private var rootModeClipSeen = false
 
     private val isMainThread: Boolean
         get() = Looper.myLooper() == Looper.getMainLooper()
@@ -123,7 +139,21 @@ object ShizukuClipClient {
                 connected = true
                 retryCount = 0
                 lastError = ""
-                updateStatus(STATUS_CONNECTED)
+
+                // 关键诊断：Shizuku 远程 uid。2000=adb 模式（能读），0=root 模式（实测读不到剪贴板）
+                remoteUid = runCatching { Shizuku.getUid() }.getOrDefault(-1)
+                rootModeClipSeen = false
+                PlatformLog.info("Shizuku 远程 uid=$remoteUid（2000=无线调试/adb 模式，0=root 模式）")
+
+                if (remoteUid == 0) {
+                    updateStatus(STATUS_ROOT_UNSUPPORTED)
+                    PlatformLog.warn(
+                        "Shizuku 以 root 运行（uid=0）：系统允许调用但不会返回剪贴板内容，" +
+                            "详见 logcat -s NezoShizuku 的 [diag] 日志",
+                    )
+                } else {
+                    updateStatus(STATUS_CONNECTED)
+                }
                 PlatformLog.info("Shizuku 剪贴板监听已连接（监听器在 shell 进程）")
             }.onFailure {
                 fail("连接后初始化失败：${it.message}")
@@ -134,6 +164,8 @@ object ShizukuClipClient {
             connected = false
             binding = false
             watcher = null
+            remoteUid = -1
+            rootModeClipSeen = false
             PlatformLog.warn("Shizuku 连接断开")
             updateStatus(Status(State.ERROR, "Shizuku 连接断开，正在重试…"))
             scheduleRetry()
@@ -160,6 +192,13 @@ object ShizukuClipClient {
         val context = appContext ?: return
         val settings = runCatching { ClipRepo.settings.value }.getOrNull() ?: return
         if (!settings.monitor || !settings.shizukuMonitor) return
+
+        // root 模式先前判了「读不到」，现在真收到内容 → 这台设备 root 也能读，恢复为已连接
+        if (remoteUid == 0 && !rootModeClipSeen) {
+            rootModeClipSeen = true
+            updateStatus(STATUS_CONNECTED)
+            PlatformLog.info("root 模式下仍收到剪贴板内容，状态恢复为已连接")
+        }
 
         val now = SystemClock.elapsedRealtime()
         if (text == lastText && now - lastCaptureAt < 1200L) return
@@ -223,6 +262,12 @@ object ShizukuClipClient {
     fun currentStatus(): Status = _status.value
 
     fun isConnected(): Boolean = connected
+
+    /** Shizuku 远程 uid：-1 未知 / 2000 无线调试(adb) / 0 root */
+    fun remoteUid(): Int = remoteUid
+
+    /** 是否 root 模式（uid=0，实测读不到剪贴板） */
+    fun isRootMode(): Boolean = remoteUid == 0
 
     fun isInstalled(context: Context): Boolean = runCatching {
         context.packageManager.getPackageInfo(SHIZUKU_PACKAGE, 0)
@@ -309,6 +354,11 @@ object ShizukuClipClient {
                 true
             }
 
+            State.ROOT_MODE_UNSUPPORTED -> {
+                updateStatus(STATUS_ROOT_UNSUPPORTED)
+                true
+            }
+
             else -> {
                 runCatching { bind(context) }
                 true
@@ -348,6 +398,8 @@ object ShizukuClipClient {
 
         when (val current = detect(context)) {
             STATUS_CONNECTED -> updateStatus(STATUS_CONNECTED)
+
+            STATUS_ROOT_UNSUPPORTED -> updateStatus(STATUS_ROOT_UNSUPPORTED)
 
             // detect() 在「已就绪但还没发起绑定」时也返回 CONNECTING；
             // 之前这里只回显状态、从不 bind()，表现就是永远停在「正在连接」。
@@ -405,13 +457,17 @@ object ShizukuClipClient {
         connected = false
         binding = false
         retryCount = 0
+        remoteUid = -1
+        rootModeClipSeen = false
         if (wasConnected) PlatformLog.info("Shizuku 剪贴板监听已停止")
     }
 
     // ── 内部 ──────────────────────────────────────────────────────────────
 
     private fun detect(context: Context): Status {
-        if (connected) return STATUS_CONNECTED
+        if (connected) {
+            return if (remoteUid == 0 && !rootModeClipSeen) STATUS_ROOT_UNSUPPORTED else STATUS_CONNECTED
+        }
         if (binding) return STATUS_CONNECTING
         if (!isInstalled(context)) return STATUS_NOT_INSTALLED
         if (!isShizukuRunning()) return STATUS_NOT_RUNNING
@@ -457,7 +513,9 @@ object ShizukuClipClient {
                 .daemon(false)
                 .version(USER_SERVICE_VERSION)
                 .processNameSuffix(USER_SERVICE_SUFFIX)
-                .debuggable(BuildConfig.DEBUG)
+                // 与 NexioSchedule 一致：显式写死 false。
+                // 之前用 BuildConfig.DEBUG 会在 debug 包传 true，部分 ROM 对 debuggable 的 UserService 有额外限制。
+                .debuggable(false)
 
             boundArgs = args
             Shizuku.bindUserService(args, connection)
@@ -499,6 +557,8 @@ object ShizukuClipClient {
         binding = false
         connected = false
         watcher = null
+        remoteUid = -1
+        rootModeClipSeen = false
         lastError = reason
         PlatformLog.warn("Shizuku 连接失败：$reason")
 
@@ -543,6 +603,8 @@ object ShizukuClipClient {
         boundArgs = null
         connected = false
         binding = false
+        remoteUid = -1
+        rootModeClipSeen = false
     }
 
     private fun updateStatus(status: Status) {

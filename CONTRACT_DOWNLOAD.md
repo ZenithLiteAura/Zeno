@@ -1,6 +1,6 @@
 # ClipNest 1.1 下载模块 · 开发契约（全员必读）
 
-> 目标：把 `I:\DeepseekHarness\01_projects\web_demos\hellotik-douyin-clone` 的后端能力**原生移植进 App**
+> 目标：把作品解析与媒体下载能力**原生实现进 App**
 > （不跑 Python 服务、不嵌 WebView），并在 dock 增加「下载」页；同时把 UI 统一到 MiUiX/Nexio 风格。
 
 工程根：`I:\DeepseekHarness\01_projects\ClipNestAndroid`（Kotlin + Compose + MiUiX 0.9.4，AGP 9.2.1）
