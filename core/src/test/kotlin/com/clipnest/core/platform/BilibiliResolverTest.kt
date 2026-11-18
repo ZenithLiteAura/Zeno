@@ -78,6 +78,37 @@ class BilibiliResolverTest {
     }
 
     @Test
+    fun `多档 playurl 合并：降序、按 URL 去重、label 归一`() {
+        val plays = listOf(
+            BilibiliPlayInfo("https://example.com/720.mp4", 2_000_000, "720p"),
+            BilibiliPlayInfo("https://example.com/1080-60.mp4", 6_000_000, "1080p60"),
+            BilibiliPlayInfo("https://example.com/1080.mp4", 5_000_000, "1080p"),
+            BilibiliPlayInfo("https://example.com/1080.mp4", 5_000_000, "1080p"), // 重复 URL
+            BilibiliPlayInfo("", 0, "720p"), // 空 URL 跳过
+        )
+        val qualities = BilibiliParser.mergeQualities(plays)
+        assertEquals("同 URL 去重 + 空 URL 跳过", 3, qualities.size)
+        assertEquals(listOf("1080p60", "1080p", "720p"), qualities.map { it.label })
+        assertEquals(6_000_000L, qualities.first().size)
+        assertTrue(
+            "排序权重不升",
+            qualities.map { BilibiliParser.qualityRank(it.label) }.let { it == it.sortedDescending() },
+        )
+
+        assertEquals("1080p", BilibiliParser.normalizeLabel("1080P"))
+        assertEquals("原画", BilibiliParser.normalizeLabel(""))
+    }
+
+    @Test
+    fun `单档 fixture 在 qualities 里也只有一条`() {
+        val play = BilibiliParser.parsePlayUrl(playJson)!!
+        val qualities = BilibiliParser.mergeQualities(listOf(play))
+        assertEquals(1, qualities.size)
+        assertEquals("720p", qualities[0].label)
+        assertEquals(play.size, qualities[0].size)
+    }
+
+    @Test
     fun `极小预算快速 timeout 不联网`() {
         val startedAt = System.currentTimeMillis()
         val work = BilibiliResolver().resolve("https://www.bilibili.com/video/BV18msM6zEqc", budgetMs = 100)

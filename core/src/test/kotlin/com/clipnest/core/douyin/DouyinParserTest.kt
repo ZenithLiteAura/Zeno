@@ -82,6 +82,8 @@ class DouyinParserTest {
         )
         assertEquals("1080p", work.videoQuality)
         assertEquals("接口 data_size 作为探测前的兜底大小", 5001477L, work.videoSize)
+        assertEquals("单候选也要有 1 条 qualities", 1, work.qualities.size)
+        assertEquals("1080p", work.selectedQuality)
         assertEquals("https://example.com/cover.jpg", work.coverUrl)
         assertTrue(work.pics.isEmpty())
         assertEquals("iesdouyin", work.source)
@@ -118,7 +120,8 @@ class DouyinParserTest {
         assertTrue(work.ok)
         assertEquals("video", work.type)
         assertEquals("https://sf6-cdn-tos.douyinstatic.com/obj/demo.mp4", work.videoUrl)
-        assertEquals("非清晰度标签留空", "", work.videoQuality)
+        assertEquals("非清晰度标签回落「原画」", "原画", work.videoQuality)
+        assertEquals("原画", work.selectedQuality)
         assertEquals(123456L, work.videoSize)
     }
 

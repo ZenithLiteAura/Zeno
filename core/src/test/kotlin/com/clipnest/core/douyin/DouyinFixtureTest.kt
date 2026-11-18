@@ -63,6 +63,9 @@ class DouyinFixtureTest {
             work.videoUrl,
         )
         assertEquals("1080p", work.videoQuality)
+        assertTrue("真实 SSR 也要带 qualities", work.qualities.isNotEmpty())
+        assertEquals("默认选中项必须属于 qualities", work.selectedQuality, work.qualities.first().label)
+        assertEquals(work.videoUrl, work.qualities.first().url)
         assertTrue("播放地址不能是 playwm（带水印）", !work.videoUrl.contains("playwm"))
         assertTrue("封面应为 https", work.coverUrl.startsWith("https://"))
         assertTrue("视频大小不能为负", work.videoSize >= 0)

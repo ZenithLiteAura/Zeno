@@ -207,6 +207,12 @@ internal object XiaohongshuParser {
         val cover = pics.firstOrNull()
             ?: note.objectOrNull("video")?.objectOrNull("image")?.let { imageUrl(it) }
             ?: ""
+        // 小红书页面只给一条视频直链（masterUrl），单清晰度
+        val qualities = if (type == "video") {
+            listOf(MediaQuality(label = "原画", url = videoUrl))
+        } else {
+            emptyList()
+        }
 
         return MediaWork(
             ok = true,
@@ -218,6 +224,9 @@ internal object XiaohongshuParser {
             author = author,
             pics = pics,
             videoUrl = videoUrl,
+            videoQuality = if (type == "video") "原画" else "",
+            qualities = qualities,
+            selectedQuality = if (type == "video") "原画" else "",
             coverUrl = cover,
             source = source,
         )

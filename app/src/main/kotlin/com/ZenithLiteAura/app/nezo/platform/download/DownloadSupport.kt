@@ -18,7 +18,7 @@ internal class DownloadError(message: String) : Exception(message)
 /** 下载模块的零散工具：路径、原子写、网络判断、扩展名/MIME、人类可读的单位与错误文案。 */
 internal object DownloadSupport {
 
-    private const val DIR_NAME = "clipnest"
+    private const val DIR_NAME = "nezo"
 
     fun dataDir(context: Context): File = File(context.filesDir, DIR_NAME).apply { runCatching { mkdirs() } }
 

@@ -19,6 +19,10 @@ data class MediaWork(
     val videoUrl: String = "",
     val videoQuality: String = "",
     val videoSize: Long = 0,
+    /** 可选清晰度列表（从高到低）；单清晰度平台也会给 1 条，拿不到为空 */
+    val qualities: List<MediaQuality> = emptyList(),
+    /** 默认选中清晰度的 label（与 [videoQuality] 同值，且一定属于 [qualities]） */
+    val selectedQuality: String = "",
     val coverUrl: String = "",
     val source: String = "",
     /** not_found | parse_failed | timeout | network | no_media | unsupported */

@@ -56,6 +56,10 @@ class KuaishouResolverTest {
         assertEquals("photoUrl 优先于 manifest", "https://v.kuaishou.example.com/v.mp4", work.videoUrl)
         assertEquals("https://v.kuaishou.example.com/cover.jpg", work.coverUrl)
         assertEquals("test", work.source)
+        assertEquals("快手单清晰度", 1, work.qualities.size)
+        assertEquals("原画", work.qualities[0].label)
+        assertEquals(work.videoUrl, work.qualities[0].url)
+        assertEquals("原画", work.selectedQuality)
     }
 
     @Test
@@ -67,6 +71,8 @@ class KuaishouResolverTest {
         assertEquals("作者C", work.author)
         assertEquals("https://v.kuaishou.example.com/manifest2.mp4", work.videoUrl)
         assertEquals("https://v.kuaishou.example.com/cover2.jpg", work.coverUrl)
+        assertEquals(1, work.qualities.size)
+        assertEquals("原画", work.selectedQuality)
     }
 
     @Test

@@ -1,0 +1,63 @@
+{
+  "loaderData": {
+    "video_(id)/page": {
+      "videoInfoRes": {
+        "item_list": [
+          {
+            "aweme_id": "7000000000000000001",
+            "desc": "多清晰度测试视频",
+            "author": {"nickname": "清晰度作者"},
+            "video": {
+              "bit_rate": [
+                {
+                  "gear_name": "720P 高清",
+                  "width": 720,
+                  "height": 1280,
+                  "play_addr": {
+                    "data_size": 2000000,
+                    "url_list": ["https://example.com/720.mp4"]
+                  }
+                },
+                {
+                  "gear_name": "1080P 超清",
+                  "width": 1080,
+                  "height": 1920,
+                  "play_addr": {
+                    "data_size": 5000000,
+                    "url_list": ["https://example.com/1080.mp4"]
+                  }
+                },
+                {
+                  "gear_name": "540P 标清",
+                  "width": 540,
+                  "height": 960,
+                  "play_addr": {
+                    "data_size": 1000000,
+                    "url_list": ["https://example.com/540.mp4"]
+                  }
+                },
+                {
+                  "gear_name": "720P 重复",
+                  "width": 720,
+                  "height": 1280,
+                  "play_addr": {
+                    "data_size": 2000000,
+                    "url_list": ["https://example.com/720.mp4"]
+                  }
+                },
+                {
+                  "gear_name": "未知档水印",
+                  "play_addr": {
+                    "data_size": 6000000,
+                    "url_list": ["https://example.com/playwm/unknown.mp4"]
+                  }
+                }
+              ],
+              "cover": {"url_list": ["https://example.com/cover.jpg"]}
+            }
+          }
+        ]
+      }
+    }
+  }
+}

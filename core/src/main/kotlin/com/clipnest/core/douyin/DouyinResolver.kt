@@ -1,5 +1,6 @@
 package com.clipnest.core.douyin
 
+import com.clipnest.core.platform.MediaQuality
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -346,7 +347,7 @@ internal data class VideoCandidate(
 
 internal object DouyinParser {
 
-    private const val MAX_PROBE_CANDIDATES = 4
+    private const val MAX_PROBE_CANDIDATES = 2
     private val URL_LIST_KEYS = listOf("url_list", "urlList", "urls")
     private val COVER_KEYS = listOf("cover", "origin_cover", "dynamic_cover", "cover_original_scale")
 
@@ -473,22 +474,61 @@ internal object DouyinParser {
             )
         }
 
-        // 用 Range 探测几个候选：拿到大小的第一个当作主地址；全都探测失败就保底第一个
-        var chosen = candidates.first()
-        var chosenSize = chosen.size
+        // bit_rate 里有多档时全部转成可选清晰度（从高到低）；为空则退回单候选
+        val bitRateCandidates = if (video != null) buildBitRateCandidates(video) else emptyList()
+        val orderedCandidates: List<VideoCandidate> =
+            if (bitRateCandidates.isNotEmpty()) {
+                bitRateCandidates.sortedByDescending { qualityRank(it.res) }
+            } else {
+                candidates
+            }
+
+        // 默认选中项也优先无水印（下载体验优先），但 qualities 展示顺序仍按清晰度从高到低。
+        // 注意：bit_rate 为空时保持原有候选顺序（1080p play 接口 → 720p → origin → 水印），
+        // 不能按 qualityRank 重排（origin 等占位标签会排到最前）。
+        val probeOrder = if (bitRateCandidates.isNotEmpty()) {
+            orderedCandidates.sortedWith(
+                compareBy<VideoCandidate> { it.watermark }.thenByDescending { qualityRank(it.res) },
+            )
+        } else {
+            orderedCandidates
+        }
+        var chosen = probeOrder.first()
+        val probedSizes = HashMap<String, Long>()
         if (probe != null) {
             var probed = 0
-            for (candidate in candidates) {
+            for (candidate in probeOrder) {
                 if (probed >= MAX_PROBE_CANDIDATES) break
                 val result = probe(candidate.url)
                 probed++
+                if (result.size != null) probedSizes[candidate.url] = result.size
                 if (result.alive) {
                     chosen = candidate
-                    chosenSize = result.size ?: candidate.size
                     break
                 }
             }
         }
+
+        val qualities: List<MediaQuality> = if (bitRateCandidates.isNotEmpty()) {
+            orderedCandidates.map { candidate ->
+                MediaQuality(
+                    label = normalizeQualityLabel(candidate.res),
+                    url = candidate.url,
+                    size = probedSizes[candidate.url] ?: candidate.size,
+                    watermark = candidate.watermark,
+                )
+            }
+        } else {
+            listOf(
+                MediaQuality(
+                    label = normalizeQualityLabel(chosen.res),
+                    url = chosen.url,
+                    size = probedSizes[chosen.url] ?: chosen.size,
+                    watermark = chosen.watermark,
+                ),
+            )
+        }
+        val selected = qualities.firstOrNull { it.url == chosen.url } ?: qualities.first()
 
         return DouyinWork(
             ok = true,
@@ -496,9 +536,11 @@ internal object DouyinParser {
             type = "video",
             title = title,
             authorName = authorName,
-            videoUrl = chosen.url,
-            videoQuality = qualityOf(chosen.res),
-            videoSize = chosenSize,
+            videoUrl = selected.url,
+            videoQuality = selected.label,
+            videoSize = selected.size,
+            qualities = qualities,
+            selectedQuality = selected.label,
             coverUrl = if (video != null) firstCoverUrl(video) else "",
             source = source,
         )
@@ -548,21 +590,8 @@ internal object DouyinParser {
         }
 
         // ① bit_rate 各清晰度
-        val bitRates = video.get("bit_rate")
-        if (bitRates != null && bitRates.isJsonArray) {
-            var index = 0
-            for (element in bitRates.asJsonArray) {
-                index++
-                if (!element.isJsonObject) continue
-                val gear = element.asJsonObject
-                val addr = gear.optObject("play_addr") ?: continue
-                val url = firstUrlFromKeys(addr, URL_LIST_KEYS) ?: continue
-                val res = qualityLabel(
-                    gear.optLong("width"),
-                    gear.optLong("height"),
-                ) ?: gear.optString("gear_name").trim().ifEmpty { "gear$index" }
-                add(res, url, addr.optLong("data_size"), watermark = false)
-            }
+        for (candidate in buildBitRateCandidates(video)) {
+            add(candidate.res, candidate.url, candidate.size, candidate.watermark)
         }
 
         // ② play_addr.uri 重构无水印播放地址（实测分享页 SSR 没有 bit_rate）
@@ -592,6 +621,81 @@ internal object DouyinParser {
         }
 
         return candidates.values.toList()
+    }
+
+    /**
+     * 只解析 `video.bit_rate[]`（多清晰度来源，从高到低排序由调用方再做）。
+     * 每个 gear 取 `play_addr.url_list[0]`；没有 url_list 时用 `play_addr.uri`：
+     * 完整 URL 直接用，`video_id` 拼无水印 play 接口。同一个 URL 只保留一次。
+     */
+    fun buildBitRateCandidates(video: JsonObject): List<VideoCandidate> {
+        val bitRates = video.get("bit_rate") ?: return emptyList()
+        if (!bitRates.isJsonArray) return emptyList()
+
+        val candidates = ArrayList<VideoCandidate>()
+        val seenUrls = HashSet<String>()
+        var index = 0
+        for (element in bitRates.asJsonArray) {
+            index++
+            if (!element.isJsonObject) continue
+            val gear = element.asJsonObject
+            val addr = gear.optObject("play_addr") ?: continue
+
+            val resolution = qualityLabel(gear.optLong("width"), gear.optLong("height"))
+            val gearName = gear.optString("gear_name").trim()
+            val qualityType = gear.optString("quality_type").trim()
+            val label = resolution ?: gearName.ifEmpty { qualityType.ifEmpty { "清晰度$index" } }
+
+            var url = firstUrlFromKeys(addr, URL_LIST_KEYS)?.let { normalizeHttpUrl(it) }
+            if (url == null) {
+                val uri = addr.optString("uri").trim()
+                if (uri.isNotEmpty()) {
+                    url = normalizeHttpUrl(uri)
+                        ?: if (QUALITY_LABEL_PATTERN.matches(label)) {
+                            "$PLAY_API?video_id=$uri&ratio=$label&line=0"
+                        } else {
+                            "$PLAY_API?video_id=$uri&line=0"
+                        }
+                }
+            }
+            if (url == null || !seenUrls.add(url)) continue
+
+            candidates.add(
+                VideoCandidate(
+                    res = label,
+                    url = url,
+                    size = addr.optLong("data_size"),
+                    watermark = url.contains("playwm"),
+                ),
+            )
+        }
+        return candidates
+    }
+
+    /** 清晰度标签归一：`1080P` → `1080p`；内部占位（play/watermark/origin）与空值 → `原画`。 */
+    fun normalizeQualityLabel(label: String): String {
+        val value = label.trim()
+        if (value.isEmpty()) return "原画"
+        if (value.equals("play", ignoreCase = true) ||
+            value.equals("watermark", ignoreCase = true) ||
+            value.equals("origin", ignoreCase = true)
+        ) {
+            return "原画"
+        }
+        if (QUALITY_LABEL_PATTERN.matches(value)) return value.lowercase()
+        return value
+    }
+
+    /** 清晰度排序权重：数字越大越清晰；`原画`/`4K` 优先，未知排最后。 */
+    fun qualityRank(label: String): Int {
+        val value = label.trim()
+        QUALITY_LABEL_PATTERN.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+        return when {
+            value.contains("4K", ignoreCase = true) || value.contains("2160") -> 2160
+            value.contains("2K", ignoreCase = true) || value.contains("1440") -> 1440
+            value.contains("原画") || value.contains("origin", ignoreCase = true) -> 9999
+            else -> 0
+        }
     }
 
     // ── SEO 兜底 ─────────────────────────────────────────────────
@@ -745,14 +849,12 @@ internal object DouyinParser {
         return "${shortSide}p"
     }
 
-    /** `1080p` 这类分辨率标签保留，`watermark`/`origin` 等非清晰度标签留空。 */
-    private fun qualityOf(res: String): String =
-        if (QUALITY_PATTERN.matches(res)) res else ""
+    /** 清晰度标签：1080p / 720P 这类「数字+p」。 */
+    private val QUALITY_LABEL_PATTERN = Regex("""(\d{3,4})\s*[pP]""")
 
     private const val CODE_NO_MEDIA = "no_media"
     private const val PLAY_API = "https://aweme.snssdk.com/aweme/v1/play/"
     private val WHITESPACE_RUN = Regex("\\s+")
-    private val QUALITY_PATTERN = Regex("""\d{3,4}p""")
     private val QUALITY_STANDARDS = listOf(2160L, 1440L, 1080L, 720L, 540L, 480L, 360L)
     private val LD_JSON_SCRIPT =
         Regex("""<script[^>]*type\s*=\s*"application/ld\+json"[^>]*>(.*?)</script>""", setOf(RegexOption.DOT_MATCHES_ALL))

@@ -210,6 +210,10 @@ internal object KuaishouParser {
             title = title,
             author = author,
             videoUrl = videoUrl,
+            videoQuality = "原画",
+            // 快手网页只拿到一条视频地址，单清晰度
+            qualities = listOf(MediaQuality(label = "原画", url = videoUrl)),
+            selectedQuality = "原画",
             coverUrl = PlatformLinks.toHttps(cover),
             source = source,
         )

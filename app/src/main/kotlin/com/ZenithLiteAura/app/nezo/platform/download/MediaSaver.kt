@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform.download
+﻿package com.ZenithLiteAura.app.nezo.platform.download
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -21,9 +21,9 @@ import java.io.OutputStream
 
 /**
  * 文件落盘：
- * - Android 10+（API 29+）：MediaStore + `IS_PENDING`，图片 `Pictures/ClipNest/<标题>`、视频 `Movies/ClipNest`、ZIP `Download/ClipNest`；
+ * - Android 10+（API 29+）：MediaStore + `IS_PENDING`，图片 `Pictures/Nezo/<标题>`、视频 `Movies/Nezo`、ZIP `Download/Nezo`；
  * - Android 8.0–9（API 26–28）：有 `WRITE_EXTERNAL_STORAGE` 就写公有目录并 `MediaScanner` 让相册可见；
- *   没权限则落 App 私有目录（`clipnest/downloads/`）并返回 FileProvider uri，可分享/打开。
+ *   没权限则落 App 私有目录（`nezo/downloads/`）并返回 FileProvider uri，可分享/打开。
  */
 internal object MediaSaver {
 
@@ -65,9 +65,9 @@ internal object MediaSaver {
             Target.ZIP -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         }
         val relativePath = when (target) {
-            Target.IMAGE -> "Pictures/ClipNest/" + titleDir.ifBlank { "未命名" }
-            Target.VIDEO -> "Movies/ClipNest"
-            Target.ZIP -> "Download/ClipNest"
+            Target.IMAGE -> "Pictures/Nezo/" + titleDir.ifBlank { "未命名" }
+            Target.VIDEO -> "Movies/Nezo"
+            Target.ZIP -> "Download/Nezo"
         }
 
         val values = ContentValues().apply {
@@ -166,13 +166,13 @@ internal object MediaSaver {
             Target.VIDEO -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
             Target.ZIP -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         }
-        val base = File(root, "ClipNest")
+        val base = File(root, "Nezo")
         val dir = if (target == Target.IMAGE) File(base, titleDir.ifBlank { "未命名" }) else base
         return File(dir, name)
     }
 
     private fun privateFile(context: Context, target: Target, titleDir: String, name: String): File {
-        val base = File(context.getExternalFilesDir(null) ?: context.filesDir, "clipnest/downloads")
+        val base = File(context.getExternalFilesDir(null) ?: context.filesDir, "nezo/downloads")
         val dir = when (target) {
             Target.IMAGE -> File(File(base, "images"), titleDir.ifBlank { "未命名" })
             Target.VIDEO -> File(base, "videos")

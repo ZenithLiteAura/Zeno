@@ -47,7 +47,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
-        android:theme="@style/Theme.ClipNest">
+        android:theme="@style/Theme.Nezo">
 
         <activity
             android:name=".MainActivity"

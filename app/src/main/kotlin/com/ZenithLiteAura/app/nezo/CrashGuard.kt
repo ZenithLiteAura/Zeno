@@ -142,7 +142,7 @@ class CrashActivity : Activity() {
             setOnClickListener {
                 runCatching {
                     val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("ClipNest 崩溃报告", trace))
+                    cm.setPrimaryClip(ClipData.newPlainText("Nezo 崩溃报告", trace))
                     Toast.makeText(this@CrashActivity, "已复制，去粘给开发者", Toast.LENGTH_SHORT).show()
                 }
             }

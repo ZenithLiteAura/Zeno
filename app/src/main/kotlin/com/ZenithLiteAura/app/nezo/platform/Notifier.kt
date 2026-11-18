@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform
+﻿package com.ZenithLiteAura.app.nezo.platform
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -24,9 +24,9 @@ import com.clipnest.core.ClipItem
  */
 object Notifier {
 
-    const val CHANNEL_SERVICE = "clipnest.service"
-    const val CHANNEL_CAPTURE = "clipnest.capture"
-    const val CHANNEL_UPDATE = "clipnest.update"
+    const val CHANNEL_SERVICE = "nezo.service"
+    const val CHANNEL_CAPTURE = "nezo.capture"
+    const val CHANNEL_UPDATE = "nezo.update"
 
     private const val REQ_OPEN = 2001
     private const val REQ_UPDATE = 2002

@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
             openUrl = { url -> openInBrowser(url) },
             copyText = { text ->
                 val cm = getSystemService(ClipboardManager::class.java)
-                cm?.setPrimaryClip(ClipData.newPlainText("ClipNest", text))
+                cm?.setPrimaryClip(ClipData.newPlainText("Nezo", text))
                 toast("已复制")
             },
             showToast = { text -> toast(text) },

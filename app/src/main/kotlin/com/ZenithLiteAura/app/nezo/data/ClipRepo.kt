@@ -1,6 +1,7 @@
 package com.ZenithLiteAura.app.nezo.data
 
 import android.content.Context
+import androidx.core.content.edit
 import com.clipnest.core.AppSettings
 import com.clipnest.core.CaptureResult
 import com.clipnest.core.CaptureRule
@@ -9,6 +10,7 @@ import com.clipnest.core.Exporter
 import com.clipnest.core.ItemStore
 import com.clipnest.core.ItemsChangeKind
 import com.clipnest.core.RuleEngine
+import com.ZenithLiteAura.app.nezo.platform.PlatformLog
 import com.clipnest.core.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,12 +44,15 @@ object ClipRepo {
     private val _lastCaptured = MutableStateFlow<ClipItem?>(null)
     val lastCaptured: StateFlow<ClipItem?> = _lastCaptured.asStateFlow()
 
-    val dataDir: File get() = File(appContext.filesDir, "clipnest")
-    val logFile: File get() = File(dataDir, "clipnest.log")
+    /** 数据目录：改名后统一用 `files/nezo`（旧版 `files/clipnest` 会在 init 时迁移过来） */
+    val dataDir: File get() = File(appContext.filesDir, "nezo")
+    val logFile: File get() = File(dataDir, "nezo.log")
 
     fun init(context: Context) {
         if (::appContext.isInitialized) return
         appContext = context.applicationContext
+        // 先迁移旧数据目录，再建新目录/加载数据（迁移失败只记日志，不阻塞启动）
+        migrateLegacyDataDir()
         dataDir.mkdirs()
         loadRulePrefs()
         engine = RuleEngine(RuleEngine_applyPrefs())
@@ -123,7 +128,7 @@ object ClipRepo {
         engine.setRuleEnabled(ruleId, enabled)
         ruleEnabled[ruleId] = enabled
         appContext.getSharedPreferences(PREFS_RULES, Context.MODE_PRIVATE)
-            .edit().putBoolean(ruleId, enabled).apply()
+            .edit { putBoolean(ruleId, enabled) }
         _rules.value = engine.rules()
     }
 
@@ -134,6 +139,77 @@ object ClipRepo {
             "csv" -> Exporter.toCsv(list)
             "json" -> Exporter.toJson(list)
             else -> Exporter.toText(list)
+        }
+    }
+
+    // ── 旧数据目录迁移（ClipNest → Nezo） ────────────────────────────────
+
+    /**
+     * 1.2.0 改名后数据目录从 `files/clipnest` 换成 `files/nezo`。
+     *
+     * 首次启动时把旧目录整体搬过来：
+     * 1. `files/nezo` 不存在 → 直接 `renameTo`（同一分区，瞬时完成）；
+     * 2. rename 失败（被占用等）→ 逐个复制 `items.json / settings.json / rules.json / downloads.json /
+     *    auto_downloaded.json / logs` 等全部内容，再尽力删除旧目录；
+     * 3. `files/nezo` 已存在（之前迁了一半）→ 只补旧目录里缺的文件，幂等。
+     *
+     * 任何异常都只记日志，绝不影响启动。
+     */
+    private fun migrateLegacyDataDir() {
+        runCatching {
+            val filesDir = appContext.filesDir
+            val legacy = File(filesDir, "clipnest")
+            val target = File(filesDir, "nezo")
+
+            if (!legacy.isDirectory) return@runCatching
+
+            if (target.isDirectory) {
+                // 已经迁过（或曾经中途失败）：补齐缺失文件后清掉旧目录
+                copyMissing(legacy, target)
+                runCatching { legacy.deleteRecursively() }
+                renameLegacyLog(target)
+                PlatformLog.info("旧数据目录已存在新目录：补齐缺失文件并清理 files/clipnest")
+                return@runCatching
+            }
+
+            val renamed = legacy.renameTo(target)
+            if (!renamed) {
+                target.mkdirs()
+                copyMissing(legacy, target)
+                runCatching { legacy.deleteRecursively() }
+            }
+
+            renameLegacyLog(target)
+            PlatformLog.info("已迁移旧数据目录 files/clipnest → files/nezo（rename=$renamed）")
+        }.onFailure {
+            PlatformLog.warn("旧数据目录迁移失败（不影响启动）：${it.message}")
+        }
+    }
+
+    /** 递归复制 [from] 里有、[to] 里没有的文件（不覆盖已有文件） */
+    private fun copyMissing(from: File, to: File) {
+        val children = from.listFiles() ?: return
+        for (child in children) {
+            runCatching {
+                val destination = File(to, child.name)
+                if (child.isDirectory) {
+                    if (!destination.exists()) destination.mkdirs()
+                    copyMissing(child, destination)
+                } else if (!destination.exists()) {
+                    child.copyTo(destination, overwrite = false)
+                }
+            }.onFailure {
+                PlatformLog.warn("迁移 ${child.name} 失败：${it.message}")
+            }
+        }
+    }
+
+    /** 旧日志文件名 clipnest.log → nezo.log */
+    private fun renameLegacyLog(dir: File) {
+        runCatching {
+            val old = File(dir, "clipnest.log")
+            val new = File(dir, "nezo.log")
+            if (old.isFile && !new.exists()) old.renameTo(new)
         }
     }
 }

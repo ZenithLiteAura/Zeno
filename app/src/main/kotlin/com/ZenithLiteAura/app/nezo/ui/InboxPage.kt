@@ -69,7 +69,7 @@ private sealed interface InboxEntry {
 }
 
 /**
- * 收件箱：MiUiX SearchBar + 平台/收藏 chips + 今天/昨天/更早分组 + Card 卡片。
+ * 主页：MiUiX SearchBar + 平台/收藏 chips + 今天/昨天/更早分组 + Card 卡片。
  * 卡片底部：「下载」主色胶囊（可下载平台）+ 加星 / 复制链接 / 浏览器打开。
  */
 @Composable

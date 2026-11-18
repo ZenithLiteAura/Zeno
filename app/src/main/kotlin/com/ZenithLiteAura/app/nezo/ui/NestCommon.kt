@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -45,15 +46,21 @@ object NestSize {
 fun dockContentBottomPadding(): Dp = 56.dp + bottomFloatingPadding() + 12.dp
 
 /**
+ * 当前是否显示浮动 dock：主页 / 下载两个一级页为 true，设置（含二级页）/ 识别规则 / 下载列表为 false。
+ * 页面统一读它来调节底部留白，避免 dock 隐藏后还空一条。
+ */
+val LocalDockVisible = staticCompositionLocalOf { true }
+
+/**
  * 页面列表的统一 contentPadding：
- * 顶部再留 10dp（Scaffold 已经让出顶栏高度，这里只补视觉呼吸），底部避开悬浮 dock。
+ * 顶部再留 10dp（Scaffold 已经让出顶栏高度，这里只补视觉呼吸），底部按 dock 显隐避开悬浮 dock。
  */
 @Composable
 fun pageContentPadding(top: Dp = 10.dp, extraBottom: Dp = 0.dp): PaddingValues = PaddingValues(
     start = NestSize.PagePadding,
     end = NestSize.PagePadding,
     top = top,
-    bottom = dockContentBottomPadding() + extraBottom,
+    bottom = (if (LocalDockVisible.current) dockContentBottomPadding() else 28.dp) + extraBottom,
 )
 
 /** 等宽（链接、文件名、进度数字）。 */

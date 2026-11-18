@@ -26,6 +26,10 @@ data class DownloadWorkUi(
     val videoQuality: String = "",
     val videoSize: Long = 0,
     val message: String = "",
+    /** 可选清晰度（从高到低）；图片作品为空 */
+    val qualities: List<com.clipnest.core.platform.MediaQuality> = emptyList(),
+    /** 当前选中的清晰度 label（默认 = 平台推荐项） */
+    val selectedQuality: String = "",
 )
 
 /** 一个下载任务（ZIP 或单文件） */
@@ -62,6 +66,9 @@ interface DownloadController {
 
     /** 下载所有图片并打包 ZIP（rule = 1..4，见 ZipNamingRule） */
     fun downloadImagesZip(rule: Int)
+
+    /** 切换下载清晰度（label 需来自 work.qualities）；切换只影响之后的下载 */
+    fun selectQuality(label: String)
 
     /** 下载视频并打包 ZIP */
     fun downloadVideoZip(rule: Int)
@@ -107,6 +114,7 @@ object StubDownloadController : DownloadController {
     }
 
     override fun downloadImagesZip(rule: Int) = Unit
+    override fun selectQuality(label: String) = Unit
     override fun downloadVideoZip(rule: Int) = Unit
     override fun downloadImagesIndividually() = Unit
     override fun downloadVideo() = Unit

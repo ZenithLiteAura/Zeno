@@ -72,21 +72,34 @@ class BilibiliResolver : PlatformResolver {
             val cid = view.cid
             if (cid <= 0L) return noMedia("B 站接口未返回 cid，无法获取视频地址")
 
-            // 3) 播放地址（先桌面直连，失败再走 html5 平台参数）
+            // 3) 播放地址：最多请求 3 档（120/80/64），失败的跳过；合并去重后从高到低
             if (deadline.remainingMs() < 2_000L) return timeout()
-            val play = requestPlayUrl(http, view.bvid, cid, desktopHeaders(), "", deadline)
-                ?: requestPlayUrl(
+            val plays = ArrayList<BilibiliPlayInfo>()
+            for (qn in QUALITY_REQUESTS) {
+                if (deadline.remainingMs() < 2_000L) break
+                requestPlayUrl(http, view.bvid, cid, desktopHeaders(), "", qn, deadline)?.let { plays.add(it) }
+            }
+            var qualities = BilibiliParser.mergeQualities(plays)
+            if (qualities.isEmpty() && deadline.remainingMs() >= 2_000L) {
+                // 三档全失败时补一次移动端 html5 兜底（仅当还有预算）
+                requestPlayUrl(
                     http,
                     view.bvid,
                     cid,
                     mobileHeaders(),
                     "&platform=html5&high_quality=1",
+                    64,
                     deadline,
-                )
-                ?: return noMedia(
+                )?.let { plays.add(it) }
+                qualities = BilibiliParser.mergeQualities(plays)
+            }
+            if (qualities.isEmpty()) {
+                return noMedia(
                     "B 站视频地址需要登录/大会员或接口受限，请在浏览器打开 " +
                         "https://www.bilibili.com/video/${view.bvid}",
                 )
+            }
+            val selected = qualities.first()
 
             MediaWork(
                 ok = true,
@@ -96,9 +109,11 @@ class BilibiliResolver : PlatformResolver {
                 type = "video",
                 title = view.title,
                 author = view.author,
-                videoUrl = play.url,
-                videoQuality = play.quality,
-                videoSize = play.size,
+                videoUrl = selected.url,
+                videoQuality = selected.label,
+                videoSize = selected.size,
+                qualities = qualities,
+                selectedQuality = selected.label,
                 coverUrl = PlatformLinks.toHttps(view.pic),
                 source = "bilibili-api",
             )
@@ -114,11 +129,12 @@ class BilibiliResolver : PlatformResolver {
         cid: Long,
         headers: Map<String, String>,
         extraQuery: String,
+        qn: Int,
         deadline: ResolveDeadline,
     ): BilibiliPlayInfo? {
         if (deadline.expired()) return null
         return try {
-            val url = "$BILI_API/player/playurl?bvid=$bvid&cid=$cid&qn=64&fnval=1$extraQuery"
+            val url = "$BILI_API/player/playurl?bvid=$bvid&cid=$cid&qn=$qn&fnval=1$extraQuery"
             val response = http.get(url, headers, deadline.requestTimeoutMs())
             if (response.statusCode != 200) null else BilibiliParser.parsePlayUrl(response.body)
         } catch (_: Exception) {
@@ -162,6 +178,9 @@ class BilibiliResolver : PlatformResolver {
 
     private companion object {
         const val BILI_API = "https://api.bilibili.com/x"
+
+        /** 最多请求 3 档清晰度（失败的跳过）。 */
+        val QUALITY_REQUESTS = listOf(120, 80, 64)
         const val MOBILE_UA =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 " +
                 "(KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
@@ -219,6 +238,7 @@ internal object BilibiliParser {
         if (url.isEmpty()) return null
         val qualityNumber = data.intOrNull("quality") ?: 0
         var quality = qualityLabel(qualityNumber)
+        if (quality.isEmpty()) quality = labelFromSupportFormats(data, qualityNumber).orEmpty()
         if (quality.isEmpty()) {
             val description = data.get("accept_description")
                 ?.takeIf { it.isJsonArray }
@@ -247,6 +267,59 @@ internal object BilibiliParser {
         120 -> "4K"
         125 -> "HDR"
         else -> ""
+    }
+
+    /**
+     * 多档 playurl 响应 → 可选清晰度列表：按 URL 去重、按清晰度从高到低、同 label 只保留一条。
+     */
+    fun mergeQualities(plays: List<BilibiliPlayInfo>): List<MediaQuality> {
+        val byUrl = LinkedHashMap<String, MediaQuality>()
+        for (play in plays) {
+            val url = play.url.trim()
+            if (url.isEmpty()) continue
+            byUrl.putIfAbsent(
+                url,
+                MediaQuality(label = normalizeLabel(play.quality), url = url, size = play.size),
+            )
+        }
+        return byUrl.values
+            .sortedByDescending { qualityRank(it.label) }
+            .distinctBy { it.label }
+    }
+
+    /** 清晰度标签归一：`1080P` → `1080p`；未知 → `原画`。 */
+    fun normalizeLabel(label: String): String {
+        val value = label.trim()
+        if (value.isEmpty()) return "原画"
+        if (QUALITY_FROM_TEXT.matches(value)) return value.lowercase()
+        return value
+    }
+
+    /** 清晰度排序权重：数字越大越清晰；`4K`/`原画` 置顶，未知排最后。 */
+    fun qualityRank(label: String): Int {
+        val value = label.trim()
+        QUALITY_FROM_TEXT.find(value)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
+        return when {
+            value.contains("4K", ignoreCase = true) || value.contains("2160") -> 2160
+            value.contains("2K", ignoreCase = true) || value.contains("1440") -> 1440
+            value.contains("原画") || value.contains("origin", ignoreCase = true) -> 9999
+            else -> 0
+        }
+    }
+
+    private fun labelFromSupportFormats(data: JsonObject, quality: Int): String? {
+        val formats = data.get("support_formats")?.takeIf { it.isJsonArray }?.asJsonArray ?: return null
+        for (element in formats) {
+            if (!element.isJsonObject) continue
+            val obj = element.asJsonObject
+            val formatQuality = obj.intOrNull("quality") ?: continue
+            if (formatQuality != quality) continue
+            val description = obj.stringOrNull("new_description")
+                ?: obj.stringOrNull("display_desc")
+                ?: continue
+            QUALITY_FROM_TEXT.find(description)?.groupValues?.getOrNull(1)?.let { return "${it}p" }
+        }
+        return null
     }
 
     private fun openData(json: String): JsonObject? {

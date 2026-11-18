@@ -49,6 +49,31 @@ class DownloadControllerImpl(context: Context) : DownloadController {
     /** 当前解析成功的结果（下载动作用它取图片/视频地址） */
     private var currentWork: DouyinWork? = null
 
+    /** 当前选中的清晰度（null = 用解析结果默认项） */
+    private var selectedQualityLabel: String? = null
+
+    /** 实际用于下载的视频地址：优先选中清晰度，否则默认项 */
+    private fun videoUrlFor(work: DouyinWork): String {
+        val label = selectedQualityLabel
+        if (label != null) {
+            work.qualities.firstOrNull { it.label == label && !it.watermark }?.url?.let { return it }
+            work.qualities.firstOrNull { it.label == label }?.url?.let { return it }
+        }
+        return work.videoUrl
+    }
+
+    override fun selectQuality(label: String) {
+        val work = currentWork ?: return
+        val hit = work.qualities.firstOrNull { it.label == label } ?: return
+        selectedQualityLabel = hit.label
+        _work.value = work.toUi().copy(
+            selectedQuality = hit.label,
+            videoQuality = hit.label,
+            videoSize = hit.size.takeIf { it > 0 } ?: work.toUi().videoSize,
+        )
+        PlatformLog.info("切换清晰度：${hit.label}（watermark=${hit.watermark}）")
+    }
+
     /** 本次解析完成时间：抖音图片直链有签名时效，超过 10 分钟提醒重新解析 */
     private var resolvedAt = 0L
 
@@ -87,6 +112,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
                 if (seq != resolveSeq) return@launch   // 已被更新的解析请求取代
 
                 currentWork = resolved
+                selectedQualityLabel = null
                 resolvedAt = System.currentTimeMillis()
                 _work.value = resolved.toUi()
 
@@ -144,14 +170,14 @@ class DownloadControllerImpl(context: Context) : DownloadController {
 
     override fun downloadVideoZip(rule: Int) {
         val work = currentWork
-        if (work == null || !work.ok || work.videoUrl.isBlank()) {
+        if (work == null || !work.ok || videoUrlFor(work).isBlank()) {
             toast("这个作品没有可下载的视频")
             return
         }
         warnIfStale()
 
         runCatching {
-            queue.enqueueVideoZip(work.awemeId, titleOf(work), work.videoUrl, rule.coerceIn(1, 4), work.videoQuality)
+            queue.enqueueVideoZip(work.awemeId, titleOf(work), videoUrlFor(work), rule.coerceIn(1, 4), selectedQualityLabel ?: work.videoQuality)
             toast("已加入队列：视频打包成 ZIP")
         }.onFailure {
             PlatformLog.error("视频 ZIP 入队失败", it)
@@ -187,14 +213,14 @@ class DownloadControllerImpl(context: Context) : DownloadController {
 
     override fun downloadVideo() {
         val work = currentWork
-        if (work == null || !work.ok || work.videoUrl.isBlank()) {
+        if (work == null || !work.ok || videoUrlFor(work).isBlank()) {
             toast("这个作品没有可下载的视频")
             return
         }
         warnIfStale()
 
         runCatching {
-            queue.enqueueVideo(work.awemeId, titleOf(work), work.videoUrl, work.videoQuality)
+            queue.enqueueVideo(work.awemeId, titleOf(work), videoUrlFor(work), selectedQualityLabel ?: work.videoQuality)
             toast("已加入队列：保存视频")
         }.onFailure {
             PlatformLog.error("视频入队失败", it)
@@ -266,6 +292,8 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         videoQuality = videoQuality,
         videoSize = videoSize,
         message = message.ifBlank { if (ok) "" else codeMessage(code) },
+        qualities = qualities,
+        selectedQuality = selectedQuality.ifBlank { videoQuality },
     )
 
     private fun codeMessage(code: String): String = when (code) {

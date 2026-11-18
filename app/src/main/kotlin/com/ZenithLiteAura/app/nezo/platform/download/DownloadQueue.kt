@@ -17,7 +17,7 @@ import java.util.UUID
 import java.util.concurrent.CancellationException
 
 /**
- * 下载队列：串行执行任务（图片/N 张并发交给 [ZipWriter] 内部 3 路）、持久化 `files/clipnest/downloads.json`、
+ * 下载队列：串行执行任务（图片/N 张并发交给 [ZipWriter] 内部 3 路）、持久化 `files/nezo/downloads.json`、
  * 支持取消 / 重试 / 清理已完成；对外只暴露 `StateFlow<List<DownloadTaskUi>>`。
  *
  * 执行由前台服务 [DownloadService] 驱动：`enqueue` → `DownloadService.start` → `drain()`。

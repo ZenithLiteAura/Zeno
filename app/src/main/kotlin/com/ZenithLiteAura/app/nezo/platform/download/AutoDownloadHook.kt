@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 1. `settings.autoDownload != "off"`；
  * 2. 作品平台是抖音；
  * 3. `downloadWifiOnly` 打开时必须连的是 Wi-Fi；
- * 4. 该 `awemeId` 不在 `files/clipnest/auto_downloaded.json`（最多 200 条）里。
+ * 4. 该 `awemeId` 不在 `files/nezo/auto_downloaded.json`（最多 200 条）里。
  *
  * 命中后异步解析并入队：`images` 档只下图片 ZIP；`all` 档图片作品下图片 ZIP、视频作品下视频 ZIP。
  * 解析/网络失败不标记已下载（10 分钟内不重复重试），避免反复骚扰。
@@ -169,7 +169,7 @@ object AutoDownloadHook {
     }
 }
 
-/** 自动下载过的作品 id（最多 200 条，先进先出淘汰），落在 `files/clipnest/auto_downloaded.json`。 */
+/** 自动下载过的作品 id（最多 200 条，先进先出淘汰），落在 `files/nezo/auto_downloaded.json`。 */
 internal class AutoDownloadedStore(private val file: File) {
 
     companion object {

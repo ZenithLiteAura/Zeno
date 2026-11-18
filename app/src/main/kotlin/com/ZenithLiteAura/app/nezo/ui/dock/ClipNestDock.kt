@@ -36,7 +36,7 @@ private val BOTTOM_BAR_GAP = 10.dp
 /** 每格占屏比，沿用参考项目「3 格占 0.63」的密度 */
 private const val TAB_WIDTH_FRACTION = 0.21f
 
-/** 胶囊里的 tab 数：收件箱 / 下载。设置是右侧那颗圆钮，不占格。 */
+/** 胶囊里的 tab 数：主页 / 下载。设置是右侧那颗圆钮，不占格。 */
 private const val TAB_COUNT = 2
 
 /**
@@ -46,11 +46,11 @@ private const val TAB_COUNT = 2
  * 整条 dock 浮在内容上方（`bottomFloatingPadding()`），按「胶囊 + 间距 + 圆钮」水平居中。
  *
  * 与参考的差异只在**导航语义**：
- * - 胶囊里 2 个 tab：收件箱（`MiuixIcons.ListView`）、规则（`MiuixIcons.Download`）；
+ * - 胶囊里 2 个 tab：主页（`MiuixIcons.ListView`）、规则（`MiuixIcons.Download`）；
  * - 右侧圆钮：设置（`MiuixIcons.Settings`），点击进「设置」页；
- * - 收藏不再是一级 tab，收进「收件箱」的筛选 chip。
+ * - 收藏不再是一级 tab，收进「主页」的筛选 chip。
  *
- * @param selectedTab 胶囊选中的下标（0 = 收件箱，1 = 下载）。进设置页时保持不变。
+ * @param selectedTab 胶囊选中的下标（0 = 主页，1 = 下载）。进设置页时保持不变。
  * @param onTabSelected 胶囊 tab 被选中
  * @param onOpenSettings 右侧圆钮被点击
  */
@@ -106,7 +106,7 @@ fun ClipNestDock(
                     tint = iconTint,
                 )
                 Text(
-                    text = "收件箱",
+                    text = "主页",
                     fontSize = 11.sp,
                     color = iconTint,
                     maxLines = 1,

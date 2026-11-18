@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform.shizuku
+﻿package com.ZenithLiteAura.app.nezo.platform.shizuku
 
 import android.content.ClipboardManager
 import android.content.Context
@@ -18,12 +18,12 @@ import androidx.annotation.Keep
  * 且 `sendClipChangedBroadcast()` 会对每个监听者再校验一次，所以监听器也必须在这里注册。
  *
  * 这个类**不要**注册进 AndroidManifest：Shizuku 通过 bindUserService 以 shell 身份直接实例化它。
- * shell 进程写不进应用私有目录，所以只用 Log（TAG=ClipNestShizuku）。
+ * shell 进程写不进应用私有目录，所以只用 Log（TAG=NezoShizuku）。
  */
 class ShizukuClipService : IClipWatcher.Stub {
 
     private companion object {
-        const val TAG = "ClipNestShizuku"
+        const val TAG = "NezoShizuku"
     }
 
     private var callback: IClipWatcherCallback? = null
@@ -151,7 +151,7 @@ class ShizukuClipService : IClipWatcher.Stub {
                 runCatching { Thread.sleep(800) }
             }
             Log.i(TAG, "剪贴板轮询已退出")
-        }, "ClipNestClipPoll")
+        }, "NezoClipPoll")
         t.isDaemon = true
         pollThread = t
         t.start()

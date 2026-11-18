@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform
+﻿package com.ZenithLiteAura.app.nezo.platform
 
 import android.util.Log
 import com.ZenithLiteAura.app.nezo.data.ClipRepo
@@ -7,12 +7,12 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 平台层日志：Logcat + 数据目录 clipnest.log。
+ * 平台层日志：Logcat + 数据目录 nezo.log。
  * 日志失败绝不影响主流程；文件超过 512KB 自动清空重来。
  */
 object PlatformLog {
 
-    private const val TAG = "ClipNest"
+    private const val TAG = "Nezo"
     private val FORMAT = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
     fun info(message: String) = write("I", message, null)

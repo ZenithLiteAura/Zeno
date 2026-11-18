@@ -62,4 +62,30 @@ class DouyinPlatformResolverTest {
         assertEquals("解析超时", mapped.message)
         assertEquals("douyin", mapped.platform)
     }
+
+    @Test
+    fun `多清晰度 qualities 映射进 MediaWork`() {
+        val source = DouyinWork(
+            ok = true,
+            awemeId = "7000000000000000001",
+            type = "video",
+            title = "多清晰度测试",
+            videoUrl = "https://example.com/1080.mp4",
+            videoQuality = "1080p",
+            videoSize = 5_000_000,
+            qualities = listOf(
+                MediaQuality("1080p", "https://example.com/1080.mp4", 5_000_000),
+                MediaQuality("720p", "https://example.com/720.mp4", 2_000_000),
+                MediaQuality("水印版", "https://example.com/playwm/x.mp4", 6_000_000, watermark = true),
+            ),
+            selectedQuality = "1080p",
+            source = "iesdouyin",
+        )
+        val mapped = source.toMediaWork()
+        assertEquals(source.qualities, mapped.qualities)
+        assertEquals("1080p", mapped.selectedQuality)
+        assertEquals("1080p", mapped.videoQuality)
+        assertEquals("https://example.com/1080.mp4", mapped.videoUrl)
+        assertTrue(mapped.qualities.last().watermark)
+    }
 }

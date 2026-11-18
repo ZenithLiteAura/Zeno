@@ -244,7 +244,7 @@ object PlatformBridge {
                 else -> "txt"
             }
             val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
-            val fileName = "ClipNest-$stamp.$extension"
+            val fileName = "Nezo-$stamp.$extension"
 
             val dir = File(context.cacheDir, "export").apply { mkdirs() }
             val file = File(dir, fileName)

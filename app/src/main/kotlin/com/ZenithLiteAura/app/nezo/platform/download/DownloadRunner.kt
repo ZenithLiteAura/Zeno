@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform.download
+﻿package com.ZenithLiteAura.app.nezo.platform.download
 
 import android.content.Context
 import com.ZenithLiteAura.app.nezo.platform.PlatformLog
@@ -12,8 +12,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 单个下载任务的执行器（在 IO 线程跑）：
- * - image_zip：全部图片 → `Download/ClipNest/image_batch_*.zip`
- * - video_zip：视频 → `Download/ClipNest/video_batch_*.zip`
+ * - image_zip：全部图片 → `Download/Nezo/image_batch_*.zip`
+ * - video_zip：视频 → `Download/Nezo/video_batch_*.zip`
  * - image / video：单文件直接进相册/视频库
  *
  * 失败一律抛异常，由 [DownloadQueue] 收敛成 `state=failed + error`。

@@ -74,6 +74,8 @@ class XiaohongshuResolverTest {
         )
         assertEquals("封面取第一张图", work.pics.first(), work.coverUrl)
         assertEquals("test", work.source)
+        assertTrue("图文作品没有清晰度列表", work.qualities.isEmpty())
+        assertEquals("", work.selectedQuality)
     }
 
     @Test
@@ -88,6 +90,11 @@ class XiaohongshuResolverTest {
         assertEquals("作者B", work.author)
         assertEquals("https://sns-video.example.com/v.mp4", work.videoUrl)
         assertTrue(work.pics.isEmpty())
+        assertEquals("小红书单清晰度", 1, work.qualities.size)
+        assertEquals("原画", work.qualities[0].label)
+        assertEquals(work.videoUrl, work.qualities[0].url)
+        assertEquals("原画", work.selectedQuality)
+        assertEquals("原画", work.videoQuality)
     }
 
     @Test

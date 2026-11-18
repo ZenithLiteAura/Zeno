@@ -1,12 +1,23 @@
 package com.ZenithLiteAura.app.nezo.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -19,9 +30,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ZenithLiteAura.app.nezo.data.DownloadController
 import com.ZenithLiteAura.app.nezo.ui.dock.ClipNestDock
+import com.ZenithLiteAura.app.nezo.ui.download.DownloadListPage
 import com.ZenithLiteAura.app.nezo.ui.download.DownloadPage
 import com.ZenithLiteAura.app.nezo.ui.settings.LocalSettingsNavigate
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsDetailPage
@@ -37,25 +51,31 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.Clear
+import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Paste
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 内部页面索引：0 收件箱、1 下载（dock 胶囊），2 设置（dock 圆钮）、3 识别规则（设置二级页）。 */
-private const val TAB_INBOX = 0
+/** 内部页面索引：0 主页、1 下载（dock 胶囊），2 设置（dock 圆钮）、3 识别规则（设置二级页）。 */
+private const val TAB_HOME = 0
 private const val TAB_DOWNLOAD = 1
 private const val TAB_SETTINGS = 2
 private const val TAB_RULES = 3
 
+/** 参与切换动画的页面身份：一级页（主页/下载）与二级页（下载列表/设置/识别规则）区分动画参数。 */
+private enum class NezoScreen {
+    Home, Download, DownloadList, Settings, SettingsSub, Rules;
+
+    val isPrimary: Boolean get() = this == Home || this == Download
+}
+
 /**
- * Nezo主界面（MiUiX 版外壳）。
+ * Nezo 主界面（MiUiX 外壳）。
  *
- * 结构对齐 NexioSchedule：`Scaffold` + `SmallTopAppBar`（居中标题 + 右侧 IconButton）+
- * 页面 LazyColumn + 底部悬浮 dock + `SnackbarHost`；不再有自绘壁纸 / 玻璃面板。
- *
- * 契约：函数签名保持不变，MainActivity 只认它。
+ * 一级页（主页 / 下载）显示悬浮 dock；下载列表、设置（含二级页）、识别规则都隐藏 dock。
+ * 一级页切换：淡入 + 轻微水平位移（240ms）；二级页进出：slide + fade（300ms）。
  */
 @Composable
 fun ClipHomeScreen(
@@ -66,8 +86,8 @@ fun ClipHomeScreen(
     actions: UiActions,
     downloads: DownloadController,
 ) {
-    var tab by remember { mutableIntStateOf(TAB_INBOX) }
-    var pillTab by remember { mutableIntStateOf(TAB_INBOX) }
+    var tab by remember { mutableIntStateOf(TAB_HOME) }
+    var pillTab by remember { mutableIntStateOf(TAB_HOME) }
     var search by remember { mutableStateOf("") }
     var platform by remember { mutableStateOf("all") }
     var detailId by remember { mutableStateOf<String?>(null) }
@@ -77,6 +97,8 @@ fun ClipHomeScreen(
     var lastSeenCaptured by remember { mutableStateOf<String?>(null) }
     // 设置页内部路由：Hub = 一级页，其它 = 二级页
     var settingsRoute by remember { mutableStateOf(SettingsRoute.Hub) }
+    // 下载列表：独立二级页
+    var showDownloadList by remember { mutableStateOf(false) }
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -100,22 +122,47 @@ fun ClipHomeScreen(
     val starredCount = items.count { it.starred }
     val enabledRules = rules.count { it.enabled }
 
-    // 顶栏返回：识别规则 → 回设置一级页；设置二级页 → 回设置一级页
-    val showBack = tab == TAB_RULES || (tab == TAB_SETTINGS && settingsRoute != SettingsRoute.Hub)
-
     // dock 角标：进行中的下载数（queued + running）
     val downloadTasks by downloads.tasks.collectAsState()
     val activeDownloads = downloadTasks.count { it.state == "queued" || it.state == "running" }
 
-    BackHandler(enabled = showBack) {
+    val screen = when {
+        tab == TAB_HOME -> NezoScreen.Home
+        tab == TAB_DOWNLOAD -> if (showDownloadList) NezoScreen.DownloadList else NezoScreen.Download
+        tab == TAB_RULES -> NezoScreen.Rules
+        settingsRoute != SettingsRoute.Hub -> NezoScreen.SettingsSub
+        else -> NezoScreen.Settings
+    }
+
+    // doll 显隐：只有主页 / 下载两个一级页显示
+    val dockVisible = screen.isPrimary
+
+    val showBack = screen == NezoScreen.Download ||
+        screen == NezoScreen.DownloadList ||
+        screen == NezoScreen.Rules ||
+        screen == NezoScreen.SettingsSub
+
+    fun goBack() {
         when {
-            tab == TAB_RULES -> tab = TAB_SETTINGS
-            settingsRoute != SettingsRoute.Hub -> settingsRoute = SettingsRoute.Hub
+            screen == NezoScreen.Download -> {
+                tab = TAB_HOME
+                pillTab = TAB_HOME
+            }
+            screen == NezoScreen.DownloadList -> showDownloadList = false
+            screen == NezoScreen.Rules -> tab = TAB_SETTINGS
+            screen == NezoScreen.SettingsSub -> settingsRoute = SettingsRoute.Hub
         }
     }
 
-    val titles = listOf("收件箱", "下载", "设置", "识别规则")
-    val screenTitle = if (tab == TAB_SETTINGS) settingsRoute.title else titles[tab]
+    BackHandler(enabled = showBack) { goBack() }
+
+    val screenTitle = when (screen) {
+        NezoScreen.Home -> "主页"
+        NezoScreen.Download -> "下载"
+        NezoScreen.DownloadList -> "下载列表"
+        NezoScreen.Settings, NezoScreen.SettingsSub -> settingsRoute.title
+        NezoScreen.Rules -> "识别规则"
+    }
 
     val requestClearAll: () -> Unit = {
         if (items.isEmpty()) {
@@ -148,6 +195,7 @@ fun ClipHomeScreen(
         if (item.url.isBlank()) {
             showToast("这条没有可下载的链接")
         } else {
+            showDownloadList = false
             tab = TAB_DOWNLOAD
             pillTab = TAB_DOWNLOAD
             downloads.resolve(item.url)
@@ -163,11 +211,7 @@ fun ClipHomeScreen(
                 color = MiuixTheme.colorScheme.background,
                 navigationIcon = {
                     if (showBack) {
-                        IconButton(
-                            onClick = {
-                                if (tab == TAB_RULES) tab = TAB_SETTINGS else settingsRoute = SettingsRoute.Hub
-                            },
-                        ) {
+                        IconButton(onClick = { goBack() }) {
                             Icon(
                                 imageVector = MiuixIcons.ChevronBackward,
                                 contentDescription = "返回",
@@ -177,62 +221,87 @@ fun ClipHomeScreen(
                     }
                 },
                 actions = {
-                    if (tab == TAB_DOWNLOAD) {
-                        IconButton(onClick = { downloads.clearFinished() }) {
-                            Icon(MiuixIcons.Clear, "清空已完成", Modifier.size(21.dp))
-                        }
-                    }
-                    if (tab == TAB_INBOX || tab == TAB_DOWNLOAD) {
+                    if (screen == NezoScreen.Home) {
                         IconButton(onClick = { showCapture = true }) {
                             Icon(MiuixIcons.Paste, "手动收录", Modifier.size(21.dp))
                         }
+                    }
+                    if (screen == NezoScreen.Download) {
+                        DownloadListEntry(
+                            activeCount = activeDownloads,
+                            onClick = { showDownloadList = true },
+                        )
                     }
                 },
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            Crossfade(targetState = tab, animationSpec = tween(240), label = "tab") { index ->
-                when (index) {
-                    TAB_INBOX -> InboxPage(
-                        items = items,
-                        starredOnly = false,
-                        search = search,
-                        onSearchChange = { search = it },
-                        platform = platform,
-                        onPlatformChange = { platform = it },
-                        newIds = newIds,
-                        onOpen = { detailId = it.id },
-                        onStar = onStar,
-                        onCopy = onCopy,
-                        onOpenUrl = onOpenUrl,
-                        onDownload = onDownload,
-                        onOpenDownload = {
-                            pillTab = TAB_DOWNLOAD
-                            tab = TAB_DOWNLOAD
-                        },
-                    )
+        CompositionLocalProvider(LocalDockVisible provides dockVisible) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                AnimatedContent(
+                    targetState = screen,
+                    transitionSpec = {
+                        if (initialState.isPrimary && targetState.isPrimary) {
+                            // 一级页：淡入 + 轻微水平位移 240ms
+                            (fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                slideInHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 16 }) togetherWith
+                                (fadeOut(tween(160)) +
+                                    slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it / 16 })
+                        } else {
+                            // 二级页进出：slide + fade 300ms
+                            (fadeIn(tween(300, easing = FastOutSlowInEasing)) +
+                                slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 8 }) togetherWith
+                                (fadeOut(tween(200)) +
+                                    slideOutHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 12 })
+                        }
+                    },
+                    label = "screen",
+                ) { target ->
+                    when (target) {
+                        NezoScreen.Home -> InboxPage(
+                            items = items,
+                            starredOnly = false,
+                            search = search,
+                            onSearchChange = { search = it },
+                            platform = platform,
+                            onPlatformChange = { platform = it },
+                            newIds = newIds,
+                            onOpen = { detailId = it.id },
+                            onStar = onStar,
+                            onCopy = onCopy,
+                            onOpenUrl = onOpenUrl,
+                            onDownload = onDownload,
+                            onOpenDownload = {
+                                showDownloadList = false
+                                pillTab = TAB_DOWNLOAD
+                                tab = TAB_DOWNLOAD
+                            },
+                        )
 
-                    TAB_DOWNLOAD -> DownloadPage(
-                        controller = downloads,
-                        settings = settings,
-                        actions = actions,
-                        onToast = { message -> showToast(message) },
-                    )
+                        NezoScreen.Download -> DownloadPage(
+                            controller = downloads,
+                            settings = settings,
+                            actions = actions,
+                            onToast = { message -> showToast(message) },
+                        )
 
-                    TAB_RULES -> RulesPage(
-                        rules = rules,
-                        actions = actions,
-                        onToast = { message -> showToast(message) },
-                    )
+                        NezoScreen.DownloadList -> DownloadListPage(
+                            controller = downloads,
+                            onToast = { message -> showToast(message) },
+                        )
 
-                    else -> if (settingsRoute == SettingsRoute.Hub) {
-                        CompositionLocalProvider(
+                        NezoScreen.Rules -> RulesPage(
+                            rules = rules,
+                            actions = actions,
+                            onToast = { message -> showToast(message) },
+                        )
+
+                        NezoScreen.Settings -> CompositionLocalProvider(
                             LocalSettingsNavigate provides { route -> settingsRoute = route },
                         ) {
                             SettingsPage(
@@ -244,11 +313,11 @@ fun ClipHomeScreen(
                                 actions = actions,
                                 onClearAll = requestClearAll,
                                 onOpenCapture = { showCapture = true },
-                                onOpenRules = { tab = TAB_RULES },
+                                onOpenRules = { showDownloadList = false; tab = TAB_RULES },
                             )
                         }
-                    } else {
-                        SettingsDetailPage(
+
+                        NezoScreen.SettingsSub -> SettingsDetailPage(
                             route = settingsRoute,
                             settings = settings,
                             itemCount = items.size,
@@ -257,23 +326,32 @@ fun ClipHomeScreen(
                         )
                     }
                 }
-            }
 
-            ClipNestDock(
-                selectedTab = pillTab,
-                // dock 角标：进行中下载数（queued + running），dock 侧负责绘制
-                activeDownloads = activeDownloads,
-                onTabSelected = { index ->
-                    settingsRoute = SettingsRoute.Hub
-                    pillTab = index
-                    tab = index
-                },
-                onOpenSettings = {
-                    settingsRoute = SettingsRoute.Hub
-                    tab = TAB_SETTINGS
-                },
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
+                AnimatedVisibility(
+                    visible = dockVisible,
+                    enter = fadeIn(tween(200, easing = FastOutSlowInEasing)) +
+                        slideInVertically(tween(200, easing = FastOutSlowInEasing)) { it / 2 },
+                    exit = fadeOut(tween(200)) +
+                        slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 2 },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    ClipNestDock(
+                        selectedTab = pillTab,
+                        activeDownloads = activeDownloads,
+                        onTabSelected = { index ->
+                            settingsRoute = SettingsRoute.Hub
+                            showDownloadList = false
+                            pillTab = index
+                            tab = index
+                        },
+                        onOpenSettings = {
+                            settingsRoute = SettingsRoute.Hub
+                            showDownloadList = false
+                            tab = TAB_SETTINGS
+                        },
+                    )
+                }
+            }
         }
 
         DetailSheet(
@@ -301,6 +379,7 @@ fun ClipHomeScreen(
             onOpenUrl = onOpenUrl,
             onDownload = { item ->
                 detailId = null
+                showDownloadList = false
                 pillTab = TAB_DOWNLOAD
                 tab = TAB_DOWNLOAD
                 downloads.resolve(item.url)
@@ -315,5 +394,38 @@ fun ClipHomeScreen(
         )
 
         ConfirmDialog(state = confirm, onDismiss = { confirm = null })
+    }
+}
+
+/** 顶栏「下载列表」入口：图标 + 进行中任务角标。 */
+@Composable
+private fun DownloadListEntry(activeCount: Int, onClick: () -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Box {
+        IconButton(onClick = onClick) {
+            Icon(
+                imageVector = MiuixIcons.ListView,
+                contentDescription = "下载列表",
+                modifier = Modifier.size(21.dp),
+            )
+        }
+        if (activeCount > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 2.dp, end = 2.dp)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(cs.error),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (activeCount > 9) "9+" else activeCount.toString(),
+                    fontSize = 9.sp,
+                    color = cs.onError,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }

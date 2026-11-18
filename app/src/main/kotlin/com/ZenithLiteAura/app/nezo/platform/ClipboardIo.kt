@@ -27,7 +27,7 @@ object ClipboardIo {
     /** 写入剪贴板 */
     fun copy(context: Context, text: String): Boolean = runCatching {
         val manager = context.getSystemService(ClipboardManager::class.java) ?: return false
-        manager.setPrimaryClip(ClipData.newPlainText("ClipNest", text))
+        manager.setPrimaryClip(ClipData.newPlainText("Nezo", text))
         true
     }.getOrDefault(false)
 

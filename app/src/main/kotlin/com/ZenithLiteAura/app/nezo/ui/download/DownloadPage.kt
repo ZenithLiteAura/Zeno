@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,41 +34,33 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ZenithLiteAura.app.nezo.data.DownloadController
-import com.ZenithLiteAura.app.nezo.data.DownloadTaskUi
 import com.ZenithLiteAura.app.nezo.data.DownloadWorkUi
-import com.ZenithLiteAura.app.nezo.ui.MonoStyle
-import com.ZenithLiteAura.app.nezo.ui.NestEmpty
 import com.ZenithLiteAura.app.nezo.ui.NestSize
-import com.ZenithLiteAura.app.nezo.ui.Tnum
 import com.ZenithLiteAura.app.nezo.ui.UiActions
 import com.ZenithLiteAura.app.nezo.ui.common.RemoteImage
 import com.ZenithLiteAura.app.nezo.ui.formatBytes
 import com.ZenithLiteAura.app.nezo.ui.pageContentPadding
-import com.ZenithLiteAura.app.nezo.ui.relTime
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.ZenithLiteAura.app.nezo.ui.settings.SettingsOptionRow
 import com.clipnest.core.AppSettings
+import com.clipnest.core.platform.MediaQuality
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Clear
 import top.yukonga.miuix.kmp.icon.extended.Download
-import top.yukonga.miuix.kmp.icon.extended.Folder
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-
-private val AUTO_OPTIONS = listOf(
-    "off" to "关闭",
-    "images" to "仅图片",
-    "all" to "图片+视频",
-)
 
 private val NAMING_OPTIONS = listOf(
     "1" to "序号_标题",
@@ -79,8 +70,11 @@ private val NAMING_OPTIONS = listOf(
 )
 
 /**
- * 下载页：粘贴作品链接（抖音/小红书/B站/快手）→ 解析 → 选择命名规则 → 打包/逐个下载 → 任务进度。
- * 所有下载动作只通过 [DownloadController]；UI 不做网络与文件操作。
+ * 下载页：粘贴作品链接 → 解析 → 选命名规则/清晰度 → 打包或逐个下载。
+ *
+ * 下载任务列表不在本页（独立「下载列表」二级页，见 `DownloadListPage.kt`）；
+ * 自动下载设置也不在本页（设置 → 下载）。
+ * 所有网络/文件动作只通过 [DownloadController]，UI 不解析响应。
  */
 @Composable
 fun DownloadPage(
@@ -94,11 +88,12 @@ fun DownloadPage(
     val context = LocalContext.current
     val work by controller.work.collectAsState()
     val resolving by controller.resolving.collectAsState()
-    val tasks by controller.tasks.collectAsState()
 
     var input by remember { mutableStateOf("") }
+    var showNamingPicker by remember { mutableStateOf(false) }
+    var showQualityPicker by remember { mutableStateOf(false) }
 
-    // 解析失败：把 DouyinWork.message 用 Snackbar 说出来
+    // 解析失败：把平台返回的中文 message 用 Snackbar 抛出来
     LaunchedEffect(work) {
         val w = work ?: return@LaunchedEffect
         if (!w.ok && w.message.isNotBlank()) onToast(w.message)
@@ -115,24 +110,58 @@ fun DownloadPage(
         item(key = "input-title") { SmallTitle(text = "作品链接") }
         item(key = "input-card") {
             Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
-                TextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = "粘贴作品链接或分享文案",
-                    useLabelAsPlaceholder = true,
-                    singleLine = false,
-                    minLines = 2,
-                )
-                Spacer(Modifier.height(6.dp))
+                // 第一行：输入框 + 行内「清除」
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        text = "解析",
+                    TextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        modifier = Modifier.weight(1f),
+                        label = "粘贴作品链接或分享文案",
+                        useLabelAsPlaceholder = true,
+                        singleLine = true,
+                    )
+                    if (input.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                input = ""
+                                controller.clearWork()
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                imageVector = MiuixIcons.Clear,
+                                contentDescription = "清除",
+                                modifier = Modifier.size(18.dp),
+                                tint = cs.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                // 第二行：主操作 + 次级操作，等高、等间距
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Button(
                         onClick = {
                             val text = input.trim()
-                            if (text.isEmpty()) onToast("先粘一个作品链接（抖音 / 小红书 / B站 / 快手）") else controller.resolve(text)
+                            if (text.isEmpty()) {
+                                onToast("先粘一个作品链接（抖音 / 小红书 / B站 / 快手）")
+                            } else {
+                                controller.resolve(text)
+                            }
                         },
-                    )
+                        modifier = Modifier
+                            .weight(1.7f)
+                            .height(44.dp),
+                        // 主操作：主色蓝底强调（用户要求第一行按钮蓝底）
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) {
+                        Text("解析链接")
+                    }
                     TextButton(
                         text = "读剪贴板",
                         onClick = {
@@ -144,62 +173,18 @@ fun DownloadPage(
                                 controller.resolve(text)
                             }
                         },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
                     )
-                    Spacer(Modifier.weight(1f))
-                    if (work != null) {
-                        TextButton(
-                            text = "清除",
-                            onClick = {
-                                input = ""
-                                controller.clearWork()
-                            },
-                        )
-                    }
                 }
                 if (resolving) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(10.dp))
                     LinearProgressIndicator(
                         progress = null,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            }
-        }
-
-        item(key = "auto-title") { SmallTitle(text = "自动下载") }
-        item(key = "auto-card") {
-            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(vertical = 4.dp)) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                    Text(
-                        text = "收录作品时自动解析并下载",
-                        style = MiuixTheme.textStyles.headline1,
-                        color = cs.onSurface,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    SegmentedOptions(
-                        options = AUTO_OPTIONS,
-                        selected = settings.autoDownload,
-                        onSelect = { value -> actions.updateSettings { it.copy(autoDownload = value) } },
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = when (settings.autoDownload) {
-                            "off" -> "只在你点了下载按钮时才开始"
-                            "images" -> "自动保存图文作品的图片，视频仍手动"
-                            else -> "图文、视频都自动下载"
-                        },
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = cs.onSurfaceVariantSummary,
-                    )
-                }
-                SwitchPreference(
-                    title = "仅在 Wi-Fi 下自动下载",
-                    summary = "移动数据下不自动开始，避免偷跑流量",
-                    checked = settings.downloadWifiOnly,
-                    onCheckedChange = { on -> actions.updateSettings { it.copy(downloadWifiOnly = on) } },
-                )
             }
         }
 
@@ -211,7 +196,8 @@ fun DownloadPage(
                     WorkCard(
                         work = result,
                         namingRule = settings.zipNamingRule,
-                        onRuleChange = { value -> actions.updateSettings { it.copy(zipNamingRule = value) } },
+                        onNamingClick = { showNamingPicker = true },
+                        onQualityClick = { showQualityPicker = true },
                         onImagesZip = { controller.downloadImagesZip(settings.zipNamingRule.toIntOrNull() ?: 1) },
                         onVideoZip = { controller.downloadVideoZip(settings.zipNamingRule.toIntOrNull() ?: 1) },
                         onImagesOneByOne = { controller.downloadImagesIndividually() },
@@ -220,12 +206,7 @@ fun DownloadPage(
                 } else {
                     Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                MiuixIcons.Clear,
-                                null,
-                                Modifier.size(18.dp),
-                                tint = cs.error,
-                            )
+                            Icon(MiuixIcons.Clear, null, Modifier.size(18.dp), tint = cs.error)
                             Spacer(Modifier.width(8.dp))
                             Column {
                                 Text(
@@ -244,77 +225,84 @@ fun DownloadPage(
                 }
             }
         }
+    }
 
-        val activeTasks = tasks.count { it.state == "queued" || it.state == "running" }
-        val doneTasks = tasks.count { it.state == "done" }
-        val finishedTasks = tasks.count { it.state == "done" || it.state == "failed" || it.state == "canceled" }
-
-        item(key = "task-title") {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "下载任务 · 进行中 $activeTasks · 已完成 $doneTasks",
-                    style = MiuixTheme.textStyles.subtitle.copy(fontWeight = FontWeight.Medium),
-                    color = cs.onSurfaceVariantSummary,
-                )
-                Spacer(Modifier.weight(1f))
-                if (finishedTasks > 0) {
-                    TextButton(
-                        text = "清空已完成",
-                        onClick = { controller.clearFinished() },
-                        minWidth = 0.dp,
-                        minHeight = 32.dp,
-                        textStyle = MiuixTheme.textStyles.footnote1,
+    // 命名规则选择（Nexio 风格：行 → 弹层单选）
+    if (showNamingPicker) {
+        OverlayDialog(
+            show = true,
+            title = "命名规则",
+            onDismissRequest = { showNamingPicker = false },
+        ) {
+            Column {
+                NAMING_OPTIONS.forEach { option ->
+                    SettingsOptionRow(
+                        title = option.second,
+                        selected = settings.zipNamingRule == option.first,
+                        onClick = {
+                            actions.updateSettings { it.copy(zipNamingRule = option.first) }
+                            showNamingPicker = false
+                        },
                     )
                 }
             }
-        }
-        if (tasks.isEmpty()) {
-            item(key = "task-empty") {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    NestEmpty(
-                        icon = MiuixIcons.Folder,
-                        title = "还没有下载任务",
-                        sub = "解析成功后点「下载全部图片 ZIP」或「下载视频 ZIP」",
-                    )
-                }
-            }
-        } else {
-            itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
-                TaskCard(
-                    task = task,
-                    queuedAhead = tasks.take(index).count { it.state == "queued" },
-                    onCancel = { controller.cancel(task.id) },
-                    onOpen = { if (task.savedUri.isNotBlank()) controller.openSaved(task.savedUri) },
-                    onRetry = {
-                        if (!controller.retry(task.id)) {
-                            onToast("重试没有成功，任务可能已经不在队列里")
-                        }
-                    },
-                )
-            }
-        }
-
-        item(key = "foot") {
-            Text(
-                text = "下载的图片与视频保存在系统相册 / 下载目录，ZIP 在 Download/ClipNest。",
-                style = MiuixTheme.textStyles.footnote2,
-                color = cs.onSurfaceVariantSummary,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-            )
         }
     }
+
+    // 清晰度选择：选项来自 work.qualities；选中后 controller 内部改用该项 url
+    if (showQualityPicker) {
+        val qualities = work?.qualities.orEmpty()
+        OverlayDialog(
+            show = true,
+            title = "清晰度",
+            onDismissRequest = { showQualityPicker = false },
+        ) {
+            Column {
+                if (qualities.isEmpty()) {
+                    SettingsOptionRow(
+                        title = (work?.selectedQuality?.ifBlank { work?.videoQuality } ?: "").ifBlank { "默认" },
+                        selected = true,
+                        onClick = { showQualityPicker = false },
+                    )
+                } else {
+                    qualities.forEach { quality ->
+                        SettingsOptionRow(
+                            title = qualityLabel(quality),
+                            selected = quality.label == work?.selectedQuality,
+                            onClick = {
+                                controller.selectQuality(quality.label)
+                                showQualityPicker = false
+                            },
+                        )
+                    }
+                }
+                if (qualities.size <= 1) {
+                    Text(
+                        text = "平台仅返回该清晰度",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 清晰度选项文案：label + 体积 + 水印标记。 */
+private fun qualityLabel(quality: MediaQuality): String = buildString {
+    append(quality.label)
+    val size = formatBytes(quality.size)
+    if (size.isNotBlank()) append(" · ").append(size)
+    if (quality.watermark) append(" · 带水印")
 }
 
 @Composable
 private fun WorkCard(
     work: DownloadWorkUi,
     namingRule: String,
-    onRuleChange: (String) -> Unit,
+    onNamingClick: () -> Unit,
+    onQualityClick: () -> Unit,
     onImagesZip: () -> Unit,
     onVideoZip: () -> Unit,
     onImagesOneByOne: () -> Unit,
@@ -322,16 +310,18 @@ private fun WorkCard(
 ) {
     val cs = MiuixTheme.colorScheme
     val isImage = work.type == "image"
+    val effectiveQuality = work.selectedQuality.ifBlank { work.videoQuality }
     val typeLabel = if (isImage) {
         "图文 · ${work.picCount} 张"
     } else {
         buildString {
             append("视频")
-            if (work.videoQuality.isNotBlank()) append(" · ${work.videoQuality}")
+            if (effectiveQuality.isNotBlank()) append(" · $effectiveQuality")
             val size = formatBytes(work.videoSize)
             if (size.isNotBlank()) append(" · $size")
         }
     }
+    val namingLabel = NAMING_OPTIONS.firstOrNull { it.first == namingRule }?.second ?: "序号_标题"
 
     Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
         RemoteImage(
@@ -376,34 +366,27 @@ private fun WorkCard(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "命名规则",
-                style = MiuixTheme.textStyles.footnote1,
-                color = cs.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NAMING_OPTIONS.forEach { (value, label) ->
-                    val active = namingRule == value
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (active) cs.primary else cs.surfaceContainer)
-                            .clickable { onRuleChange(value) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            text = label,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = if (active) cs.onPrimary else cs.onSurfaceVariantActions,
-                            maxLines = 1,
-                        )
-                    }
+            Spacer(Modifier.height(8.dp))
+            PickRow(title = "命名规则", value = namingLabel, onClick = onNamingClick)
+            // 清晰度：有可选清晰度才显示（图片作品 qualities 为空）
+            val hasQualities = work.qualities.isNotEmpty()
+            if (hasQualities) {
+                PickRow(
+                    title = "清晰度",
+                    value = effectiveQuality.ifBlank { "默认" },
+                    onClick = onQualityClick,
+                )
+                if (work.qualities.size <= 1) {
+                    Text(
+                        text = "平台仅返回该清晰度",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = cs.onSurfaceVariantSummary.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(start = 2.dp, bottom = 4.dp),
+                    )
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { if (isImage) onImagesZip() else onVideoZip() },
                 modifier = Modifier.fillMaxWidth(),
@@ -423,189 +406,42 @@ private fun WorkCard(
     }
 }
 
+/** 选择行：左标题 + 右侧当前值 + 箭头（Nexio 设置项风格）。 */
 @Composable
-private fun TaskCard(
-    task: DownloadTaskUi,
-    queuedAhead: Int,
-    onCancel: () -> Unit,
-    onOpen: () -> Unit,
-    onRetry: () -> Unit,
-) {
-    val cs = MiuixTheme.colorScheme
-    val running = task.state == "running" || task.state == "queued"
-    val progress: Float? = when {
-        task.state == "done" -> 1f
-        task.total > 0 -> (task.done.toFloat() / task.total).coerceIn(0f, 1f)
-        task.state == "running" -> null
-        else -> 0f
-    }
-
-    Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            KindTag(task.kind)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = task.title.ifBlank { "未命名任务" },
-                style = MiuixTheme.textStyles.headline2,
-                color = cs.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (running) {
-                IconButton(onClick = onCancel, modifier = Modifier.size(34.dp)) {
-                    Icon(MiuixIcons.Clear, "取消下载", Modifier.size(18.dp), tint = cs.onSurfaceVariantActions)
-                }
-            } else if (task.state == "done" && task.savedUri.isNotBlank()) {
-                IconButton(onClick = onOpen, modifier = Modifier.size(34.dp)) {
-                    Icon(MiuixIcons.Folder, "打开", Modifier.size(18.dp), tint = cs.primary)
-                }
-            } else if (task.state == "failed" || task.state == "canceled") {
-                TextButton(
-                    text = "重试",
-                    onClick = onRetry,
-                    minWidth = 0.dp,
-                    minHeight = 32.dp,
-                    textStyle = MiuixTheme.textStyles.footnote1,
-                )
-            }
-        }
-        Spacer(Modifier.height(3.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = taskStateText(task, queuedAhead),
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (task.state == "failed") cs.error else cs.onSurfaceVariantSummary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text = relTime(task.createdAt),
-                style = Tnum.copy(fontSize = MiuixTheme.textStyles.footnote2.fontSize),
-                color = cs.onSurfaceVariantSummary.copy(alpha = 0.75f),
-                maxLines = 1,
-            )
-        }
-        if (running) {
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = progress,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (task.total > 0) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = "${(task.done * 100 / task.total).coerceIn(0, 100)}%" +
-                        if (task.bytesPerSec > 0) " · ${formatBytes(task.bytesPerSec)}/s" else "",
-                    style = Tnum.copy(fontSize = MiuixTheme.textStyles.footnote2.fontSize),
-                    color = cs.onSurfaceVariantSummary.copy(alpha = 0.8f),
-                )
-            }
-        } else if (task.state == "done") {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "已保存 · 点右侧文件夹打开",
-                style = MiuixTheme.textStyles.footnote2,
-                color = cs.onSurfaceVariantSummary.copy(alpha = 0.8f),
-            )
-        } else if (task.state == "failed" && task.error.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = task.error,
-                style = MiuixTheme.textStyles.footnote2,
-                color = cs.onSurfaceVariantSummary,
-            )
-        }
-    }
-}
-
-/** 任务状态文案：等待下载（排队第 N 位）/ 下载中 X/Y / 已完成 / 失败 / 已取消。 */
-private fun taskStateText(task: DownloadTaskUi, queuedAhead: Int): String = when (task.state) {
-    "queued" -> "等待下载（排队第 ${queuedAhead + 1} 位）"
-    "running" -> buildString {
-        append("下载中")
-        if (task.total > 0) append(" ${task.done}/${task.total}")
-        // bytesPerSec 目前后端还没填（一直 0），0 时不显示速度，只显示已下载体积
-        if (task.bytesPerSec > 0) {
-            append(" · ${formatBytes(task.bytesPerSec)}/s")
-        } else {
-            val size = formatBytes(task.bytes)
-            if (size.isNotBlank()) append(" · 已下载 $size")
-        }
-    }
-
-    "done" -> "已完成"
-    "failed" -> "失败"
-    "canceled" -> "已取消"
-    else -> task.state
-}
-
-@Composable
-private fun KindTag(kind: String) {
-    val cs = MiuixTheme.colorScheme
-    val (container, content) = when (kind) {
-        "image_zip" -> cs.secondaryContainer to cs.onSecondaryContainer
-        "video_zip" -> cs.tertiaryContainer to cs.onTertiaryContainer
-        "video" -> cs.tertiaryContainer to cs.onTertiaryContainer
-        else -> cs.primaryContainer to cs.onPrimaryContainer
-    }
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(container)
-            .padding(horizontal = 7.dp, vertical = 2.dp),
-    ) {
-        Text(
-            text = kindLabel(kind),
-            style = MiuixTheme.textStyles.footnote2,
-            color = content,
-            maxLines = 1,
-        )
-    }
-}
-
-@Composable
-private fun SegmentedOptions(
-    options: List<Pair<String, String>>,
-    selected: String,
-    onSelect: (String) -> Unit,
+private fun PickRow(
+    title: String,
+    value: String,
+    onClick: () -> Unit,
 ) {
     val cs = MiuixTheme.colorScheme
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(11.dp))
-            .background(cs.surfaceContainer)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NestSize.CardRadius))
+            .clickable { onClick() }
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        options.forEach { (value, label) ->
-            val active = selected == value
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (active) cs.surfaceContainerHigh else cs.surfaceContainer)
-                    .clickable { onSelect(value) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    text = label,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = if (active) cs.onSurface else cs.onSurfaceVariantSummary,
-                    maxLines = 1,
-                )
-            }
-        }
+        Text(
+            text = title,
+            style = MiuixTheme.textStyles.headline1,
+            color = cs.onSurface,
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = value,
+            style = MiuixTheme.textStyles.footnote1,
+            color = cs.onSurfaceVariantSummary,
+            maxLines = 1,
+        )
+        Spacer(Modifier.width(4.dp))
+        Icon(
+            imageVector = MiuixIcons.ChevronForward,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = cs.onSurfaceVariantSummary,
+        )
     }
-}
-
-private fun kindLabel(kind: String): String = when (kind) {
-    "image_zip" -> "图片 ZIP"
-    "video_zip" -> "视频 ZIP"
-    "image" -> "单张图片"
-    "video" -> "视频"
-    else -> kind
 }
 
 private fun readClipboard(context: Context): String? = runCatching {

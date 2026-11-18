@@ -1,4 +1,4 @@
-package com.ZenithLiteAura.app.nezo.platform.download
+﻿package com.ZenithLiteAura.app.nezo.platform.download
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -21,8 +21,8 @@ import com.ZenithLiteAura.app.nezo.platform.Notifier
  */
 internal object DownloadNotifier {
 
-    const val CHANNEL_PROGRESS = "clipnest.download"
-    const val CHANNEL_RESULT = "clipnest.download.result"
+    const val CHANNEL_PROGRESS = "nezo.download"
+    const val CHANNEL_RESULT = "nezo.download.result"
 
     const val PROGRESS_NOTIFICATION_ID = 4101
 
