@@ -137,13 +137,21 @@ fun ClipHomeScreen(
     // doll 显隐：只有主页 / 下载两个一级页显示
     val dockVisible = screen.isPrimary
 
-    val showBack = screen == NezoScreen.Download ||
-        screen == NezoScreen.DownloadList ||
+    // 左上角返回箭头：只给「设置 / 设置二级 / 下载列表 / 识别规则」这些非一级 tab 的页面
+    val showBack = screen == NezoScreen.DownloadList ||
+        screen == NezoScreen.Settings ||
         screen == NezoScreen.Rules ||
         screen == NezoScreen.SettingsSub
 
+    // 系统返回键：上面这些页面 + 下载页（下载页回主页，而不是直接退到桌面）
+    val handleBack = showBack || screen == NezoScreen.Download
+
     fun goBack() {
         when {
+            screen == NezoScreen.Settings -> {
+                settingsRoute = SettingsRoute.Hub
+                tab = pillTab
+            }
             screen == NezoScreen.Download -> {
                 tab = TAB_HOME
                 pillTab = TAB_HOME
@@ -154,7 +162,7 @@ fun ClipHomeScreen(
         }
     }
 
-    BackHandler(enabled = showBack) { goBack() }
+    BackHandler(enabled = handleBack) { goBack() }
 
     val screenTitle = when (screen) {
         NezoScreen.Home -> "主页"

@@ -15,7 +15,7 @@
 |---|---|
 | 应用名 | Nezo |
 | 包名 | `com.ZenithLiteAura.app.nezo` |
-| 版本 | 1.2.1（versionCode 8） |
+| 版本 | 1.2.2（versionCode 9） |
 | 要求 | Android 8.0+（minSdk 26，targetSdk 37） |
 | 界面 | Kotlin + Jetpack Compose + MiUiX（HyperOS 液态玻璃风格） |
 
