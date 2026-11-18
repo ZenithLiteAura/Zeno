@@ -1,4 +1,4 @@
-﻿package com.ZenithLiteAura.app.nezo.platform.download
+package com.ZenithLiteAura.app.nezo.platform.download
 
 import android.content.Context
 import com.ZenithLiteAura.app.nezo.platform.PlatformLog
@@ -47,7 +47,7 @@ internal object DownloadRunner {
 
         val sink = MediaSaver.createZip(context, zipName)
         try {
-            ZipWriter.write(
+            job.zipEntryCount = ZipWriter.write(
                 context = context,
                 output = sink.output,
                 entries = entries,
@@ -79,7 +79,7 @@ internal object DownloadRunner {
 
         val sink = MediaSaver.createZip(context, zipName)
         try {
-            ZipWriter.write(
+            job.zipEntryCount = ZipWriter.write(
                 context = context,
                 output = sink.output,
                 entries = entries,

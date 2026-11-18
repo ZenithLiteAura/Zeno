@@ -86,7 +86,9 @@ class ItemStore(
                     raw = prepared.raw.ifEmpty { old.raw },
                     capturedAt = prepared.capturedAt,
                     source = prepared.source.ifEmpty { old.source },
-                    // id / starred / note / coverUrl / meta 保留旧值
+                    // 重新收录同一条链接 → 从回收站恢复回收件箱（下载标记保留）
+                    trashAt = 0L,
+                    // id / starred / note / coverUrl / meta / downloadedAt / downloadCheck 保留旧值
                 )
                 items.removeAt(existingIndex)
                 items.add(0, stored)
@@ -163,6 +165,113 @@ class ItemStore(
         synchronized(lock) { loadLocked() }
         notifyListeners(ItemsChangeKind.Reloaded, null)
     }
+
+    // ── 下载标记 / 回收站 ─────────────────────────────────────────
+
+    /**
+     * 给「与这次下载相关」的条目打下载标记。
+     *
+     * 匹配规则（可能命中多条，全部打标）：
+     * 1. 条目 `url` 与 [url] 相同（规范化后比较）；
+     * 2. 条目 `url` 或 `raw` 里包含 [awemeId]（抖音作品 ID）。
+     *
+     * @param check `ok` / `size_mismatch` / `missing`
+     * @return 被更新的条目 id 列表（供自动移入回收站使用）
+     */
+    fun markDownloaded(
+        url: String,
+        awemeId: String,
+        check: String,
+        timeMs: Long = System.currentTimeMillis(),
+    ): List<String> {
+        val normalizedUrl = TextUtil.normalizeUrl(url)
+        val updated = ArrayList<ClipItem>()
+        synchronized(lock) {
+            for (index in items.indices) {
+                val item = items[index]
+                if (!matchesDownload(item, normalizedUrl, awemeId)) continue
+                val changed = item.copy(downloadedAt = timeMs, downloadCheck = check)
+                items[index] = changed
+                updated += changed
+            }
+            if (updated.isNotEmpty()) persistLocked()
+        }
+        updated.forEach { notifyListeners(ItemsChangeKind.Updated, it) }
+        return updated.map { it.id }
+    }
+
+    private fun matchesDownload(item: ClipItem, normalizedUrl: String, awemeId: String): Boolean {
+        if (normalizedUrl.isNotEmpty() && item.url == normalizedUrl) return true
+        if (awemeId.isBlank()) return false
+        return item.url.contains(awemeId) || item.raw.contains(awemeId)
+    }
+
+    /** 移入回收站（幂等）；未知 id 返回 false。 */
+    fun moveToTrash(id: String, timeMs: Long = System.currentTimeMillis()): Boolean {
+        var updated: ClipItem? = null
+        synchronized(lock) {
+            val index = items.indexOfFirst { it.id == id }
+            if (index < 0) return false
+            val old = items[index]
+            if (old.trashAt > 0L) return true
+            val changed = old.copy(trashAt = timeMs)
+            items[index] = changed
+            updated = changed
+            persistLocked()
+        }
+        updated?.let { notifyListeners(ItemsChangeKind.Updated, it) }
+        return true
+    }
+
+    /** 从回收站恢复（幂等）；未知 id 返回 false。 */
+    fun restoreFromTrash(id: String): Boolean {
+        var updated: ClipItem? = null
+        synchronized(lock) {
+            val index = items.indexOfFirst { it.id == id }
+            if (index < 0) return false
+            val old = items[index]
+            if (old.trashAt <= 0L) return true
+            val changed = old.copy(trashAt = 0L)
+            items[index] = changed
+            updated = changed
+            persistLocked()
+        }
+        updated?.let { notifyListeners(ItemsChangeKind.Updated, it) }
+        return true
+    }
+
+    /** 彻底清空回收站，返回删除条数。 */
+    /** 单条彻底删除（仅回收站内的条目），返回是否删除成功 */
+    fun purgeTrash(id: String): Boolean {
+        synchronized(lock) {
+            val hit = items.firstOrNull { it.id == id && it.trashAt > 0L } ?: return false
+            items.remove(hit)
+            persistLocked()
+            return true
+        }
+    }
+
+    fun purgeTrash(): Int {
+        var removedCount = 0
+        synchronized(lock) {
+            val removed = items.filter { it.trashAt > 0L }
+            if (removed.isNotEmpty()) {
+                items.removeAll(removed)
+                removedCount = removed.size
+                persistLocked()
+            }
+        }
+        if (removedCount > 0) notifyListeners(ItemsChangeKind.Removed, null)
+        return removedCount
+    }
+
+    /** 回收站列表（按移入时间倒序）。 */
+    fun trashItems(): List<ClipItem> = synchronized(lock) {
+        items.filter { it.trashAt > 0L }.sortedByDescending { it.trashAt }
+    }
+
+    /** 未移入回收站的条目（按原顺序，新的在前）。 */
+    fun inboxItems(): List<ClipItem> = synchronized(lock) { items.filter { it.trashAt == 0L } }
 
     // ── 内部 ─────────────────────────────────────────────────────
 
@@ -242,6 +351,9 @@ class ItemStore(
         note = o.str("note"),
         coverUrl = o.strOrNull("coverUrl"),
         meta = o.strOrNull("meta"),
+        downloadedAt = o.longOrNull("downloadedAt") ?: 0L,
+        downloadCheck = o.str("downloadCheck"),
+        trashAt = o.longOrNull("trashAt") ?: 0L,
     )
 
     private fun persistLocked() {

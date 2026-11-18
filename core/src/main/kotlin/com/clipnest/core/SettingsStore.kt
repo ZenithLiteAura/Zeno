@@ -92,6 +92,8 @@ class SettingsStore(private val file: File) {
                 autoDownload = o.str("autoDownload").ifEmpty { "off" },
                 zipNamingRule = o.str("zipNamingRule").ifEmpty { "1" },
                 downloadWifiOnly = o.bool("downloadWifiOnly", true),
+                autoTrashAfterDownload = o.bool("autoTrashAfterDownload", true),
+                autoTrashIgnoreCheck = o.bool("autoTrashIgnoreCheck", false),
                 shizukuMonitor = o.bool("shizukuMonitor", false),
             )
         )

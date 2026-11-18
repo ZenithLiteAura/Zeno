@@ -32,7 +32,14 @@ object ClipRepo {
     private val ruleEnabled = LinkedHashMap<String, Boolean>()
 
     private val _items = MutableStateFlow<List<ClipItem>>(emptyList())
+
+    /** 收件箱（已过滤回收站，`trashAt == 0`） */
     val items: StateFlow<List<ClipItem>> = _items.asStateFlow()
+
+    private val _trash = MutableStateFlow<List<ClipItem>>(emptyList())
+
+    /** 回收站（`trashAt > 0`，按移入时间倒序） */
+    val trash: StateFlow<List<ClipItem>> = _trash.asStateFlow()
 
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -59,10 +66,10 @@ object ClipRepo {
         settingStore = SettingsStore(File(dataDir, "settings.json"))
         store = ItemStore(File(dataDir, "items.json"), settingStore.current().maxItems, settingStore.current().dedupeByUrl)
         store.addListener { kind, item ->
-            _items.value = store.items()
+            refreshItemsLocked()
             if (kind == ItemsChangeKind.Added || kind == ItemsChangeKind.Updated) _lastCaptured.value = item
         }
-        _items.value = store.items()
+        refreshItemsLocked()
         _settings.value = settingStore.current()
         _rules.value = engine.rules()
         settingStore.addListener { s ->
@@ -71,6 +78,13 @@ object ClipRepo {
             store.dedupeByUrl = s.dedupeByUrl
             setRuleEnabled("generic-link", s.capturePlainLinks)
         }
+    }
+
+    /** 收件箱/回收站两个流一起刷新（同一份 store 快照，只过滤一次） */
+    private fun refreshItemsLocked() {
+        val all = store.items()
+        _items.value = all.filter { it.trashAt == 0L }
+        _trash.value = all.filter { it.trashAt > 0L }.sortedByDescending { it.trashAt }
     }
 
     private fun RuleEngine_applyPrefs(): List<CaptureRule> =
@@ -117,6 +131,36 @@ object ClipRepo {
     fun clearAll() = store.clear()
 
     fun updateItem(item: ClipItem) = store.update(item)
+
+    // ── 下载标记 / 回收站 ────────────────────────────────────────────────
+
+    /**
+     * 给「这次下载相关」的条目打下载标记（url 相同 或 url/raw 含 awemeId），返回被更新的 id 列表。
+     * @param check `ok` / `size_mismatch` / `missing`
+     */
+    fun markDownloaded(
+        url: String,
+        awemeId: String,
+        check: String,
+        timeMs: Long = System.currentTimeMillis(),
+    ): List<String> = store.markDownloaded(url, awemeId, check, timeMs)
+
+    /** 移入回收站（主页 items 流会自动过滤掉） */
+    fun moveToTrash(id: String, timeMs: Long = System.currentTimeMillis()): Boolean =
+        store.moveToTrash(id, timeMs)
+
+    /** 从回收站恢复回收件箱 */
+    fun restoreFromTrash(id: String): Boolean = store.restoreFromTrash(id)
+
+    /** 彻底清空回收站，返回删除条数 */
+    fun purgeTrash(): Int = store.purgeTrash()
+
+    /** 回收站里单条彻底删除 */
+    fun purgeTrash(id: String): Boolean {
+        val ok = store.purgeTrash(id)
+        if (ok) runCatching { refreshItemsLocked() }
+        return ok
+    }
 
     fun updateSettings(mutate: (AppSettings) -> AppSettings): AppSettings {
         val next = settingStore.update(mutate)

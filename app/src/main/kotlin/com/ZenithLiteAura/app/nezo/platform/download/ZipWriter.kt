@@ -40,7 +40,7 @@ internal object ZipWriter {
         onEntryDone: () -> Unit,
         onDelta: (Long) -> Unit,
         isCanceled: () -> Boolean,
-    ) {
+    ): Int {
         if (entries.isEmpty()) throw IOException("没有可下载的条目")
 
         val tempDir = File(DownloadSupport.tempDir(context), "zip_" + System.nanoTime()).apply { mkdirs() }
@@ -98,6 +98,7 @@ internal object ZipWriter {
             zip.finish()
             zip.flush()
             PlatformLog.info("ZIP 打包完成：${entries.size} 个条目")
+            return entries.size
         } finally {
             runCatching { tempDir.deleteRecursively() }
         }

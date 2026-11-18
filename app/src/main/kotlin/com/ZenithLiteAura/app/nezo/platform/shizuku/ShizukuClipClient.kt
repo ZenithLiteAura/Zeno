@@ -33,7 +33,7 @@ object ShizukuClipClient {
 
     private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
     private const val REQUEST_CODE = 0x5A17
-    private const val USER_SERVICE_VERSION = 1
+    private const val USER_SERVICE_VERSION = 2
     private const val USER_SERVICE_SUFFIX = "clipwatcher"
     private const val RETRY_LIMIT = 2
     private const val RETRY_DELAY_MS = 3000L
@@ -166,14 +166,23 @@ object ShizukuClipClient {
             watcher = null
             remoteUid = -1
             rootModeClipSeen = false
-            PlatformLog.warn("Shizuku 连接断开")
-            updateStatus(Status(State.ERROR, "Shizuku 连接断开，正在重试…"))
+
+            // 断开原因尽量说清楚：Shizuku 服务停了 / UserService 被回收 / 未知
+            val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+            val reason = when {
+                !binderAlive -> "Shizuku 服务已停止"
+                name != null -> "UserService 被回收（${name.className.substringAfterLast('.')}）"
+                else -> "UserService 意外退出（可能被系统限制后台）"
+            }
+            lastError = reason
+            PlatformLog.warn("Shizuku 连接断开：$reason · name=$name · pingBinder=$binderAlive")
+            updateStatus(Status(State.ERROR, "连接断开：$reason，正在重试…"))
             scheduleRetry()
         }
 
         override fun onNullBinding(name: ComponentName?) {
             binding = false
-            fail("Shizuku 返回空 binder（UserService 没能启动）")
+            fail("Shizuku 返回空 binder（UserService 没能启动，name=$name）")
         }
     }
 
@@ -241,9 +250,11 @@ object ShizukuClipClient {
                     connected = false
                     binding = false
                     watcher = null
+                    remoteUid = -1
+                    rootModeClipSeen = false
                     lastError = "Shizuku 服务已停止"
-                    updateStatus(STATUS_NOT_RUNNING)
-                    PlatformLog.warn("Shizuku binder 断开")
+                    updateStatus(Status(State.ERROR, "Shizuku 服务已停止/断开 · 请重新启动 Shizuku"))
+                    PlatformLog.warn("Shizuku binder 断开（服务停止或被系统杀）")
                 }
             }
         }.onFailure {
@@ -577,6 +588,12 @@ object ShizukuClipClient {
         if (!wantShizuku()) return
         if (retryCount >= RETRY_LIMIT) {
             PlatformLog.warn("Shizuku 重连已达上限（$RETRY_LIMIT 次），保持降级")
+            updateStatus(
+                Status(
+                    State.ERROR,
+                    "连接不稳定（已重试 $RETRY_LIMIT 次）· 请确认 Shizuku 是「无线调试」启动，且未被系统限制后台",
+                )
+            )
             return
         }
 

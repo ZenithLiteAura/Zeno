@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -17,6 +19,7 @@ import com.ZenithLiteAura.app.nezo.ui.settings.SettingsNavRow
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsRoute
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsSwitchRow
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsValueRow
+import com.ZenithLiteAura.app.nezo.ui.settings.TrashGateway
 import com.ZenithLiteAura.app.nezo.ui.settings.UpdateGateway
 import com.ZenithLiteAura.app.nezo.ui.settings.rememberUpdateInfo
 import com.ZenithLiteAura.app.nezo.ui.settings.updateStatusText
@@ -62,6 +65,7 @@ fun SettingsPage(
     val navigate = LocalSettingsNavigate.current
     val context = LocalContext.current
     val updateInfo = rememberUpdateInfo()
+    val trashItems by TrashGateway.trashFlow.collectAsState()
 
     val autoLabel = when (settings.autoDownload) {
         "off" -> "关闭"
@@ -177,6 +181,19 @@ fun SettingsPage(
                     checked = settings.downloadWifiOnly,
                     onCheckedChange = { on -> actions.updateSettings { it.copy(downloadWifiOnly = on) } },
                 )
+                SettingsSwitchRow(
+                    icon = MiuixIcons.Delete,
+                    title = "下载后自动移入回收站",
+                    checked = settings.autoTrashAfterDownload,
+                    onCheckedChange = { on -> actions.updateSettings { it.copy(autoTrashAfterDownload = on) } },
+                )
+                SettingsSwitchRow(
+                    icon = MiuixIcons.Ok,
+                    title = "校验不通过也归档",
+                    summary = "文件缺失 / 大小不符时也移入回收站",
+                    checked = settings.autoTrashIgnoreCheck,
+                    onCheckedChange = { on -> actions.updateSettings { it.copy(autoTrashIgnoreCheck = on) } },
+                )
             }
         }
 
@@ -211,6 +228,12 @@ fun SettingsPage(
                             navigate(SettingsRoute.Clear)
                         }
                     },
+                )
+                SettingsNavRow(
+                    icon = MiuixIcons.Folder,
+                    title = "回收站",
+                    value = "${trashItems.size} 条",
+                    onClick = { navigate(SettingsRoute.Trash) },
                 )
                 SettingsValueRow(
                     icon = MiuixIcons.Folder,

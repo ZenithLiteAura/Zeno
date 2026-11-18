@@ -22,6 +22,12 @@ data class ClipItem(
     val note: String = "",
     val coverUrl: String? = null,
     val meta: String? = null,
+    /** 下载完成时间（0 = 未下载）；>0 时卡片显示「已下载」标识 */
+    val downloadedAt: Long = 0,
+    /** 下载校验结果："ok" | "size_mismatch" | "missing"（"ok" 才允许自动进回收站） */
+    val downloadCheck: String = "",
+    /** 移入回收站时间（0 = 正常）；>0 时不出现在主页，只在回收站可见 */
+    val trashAt: Long = 0,
 )
 
 data class AppSettings(
@@ -41,6 +47,10 @@ data class AppSettings(
     val zipNamingRule: String = "1",
     /** 自动下载仅在 Wi-Fi 下进行 */
     val downloadWifiOnly: Boolean = true,
+    /** 下载完成且校验通过后，自动把来源条目移入回收站 */
+    val autoTrashAfterDownload: Boolean = true,
+    /** 校验不通过（大小不符/文件缺失）时是否也归档；false = 保留在主页并标「校验未通过」 */
+    val autoTrashIgnoreCheck: Boolean = false,
     /** Shizuku 真·后台剪贴板监听（需用户安装并授权 Shizuku） */
     val shizukuMonitor: Boolean = false,
 )

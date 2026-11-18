@@ -54,7 +54,7 @@ fun SettingsIcon(icon: ImageVector) {
     }
 }
 
-/** 开关行：图标 + 标题 + 开关（没有副标题）。 */
+/** 开关行：图标 + 标题 + 开关（可选一行 summary）。 */
 @Composable
 fun SettingsSwitchRow(
     icon: ImageVector,
@@ -62,9 +62,11 @@ fun SettingsSwitchRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
+    summary: String? = null,
 ) {
     SwitchPreference(
         title = title,
+        summary = summary,
         checked = checked,
         enabled = enabled,
         startAction = { SettingsIcon(icon) },

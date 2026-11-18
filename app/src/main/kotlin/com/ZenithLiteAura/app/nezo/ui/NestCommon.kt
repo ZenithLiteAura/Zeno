@@ -12,6 +12,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -82,6 +83,17 @@ fun platformTagColors(platform: String): TagColors {
         0 -> TagColors(cs.primaryContainer, cs.onPrimaryContainer)
         1 -> TagColors(cs.secondaryContainer, cs.onSecondaryContainer)
         else -> TagColors(cs.tertiaryContainer, cs.onTertiaryContainer)
+    }
+}
+
+/** 告警标签色（橙色系）：下载校验未通过等状态用，深浅各一套。 */
+@Composable
+fun warningTagColors(): TagColors {
+    val light = MiuixTheme.colorScheme.background.luminance() > 0.5f
+    return if (light) {
+        TagColors(Color(0xFFFDEAD0), Color(0xFFAE6A13))
+    } else {
+        TagColors(Color(0xFF33291A), Color(0xFFE7BC7E))
     }
 }
 

@@ -347,13 +347,23 @@ fun ClipCard(
             }
         }
         Box(Modifier.height(4.dp))
-        Text(
-            text = item.title.ifBlank { item.raw },
-            style = MiuixTheme.textStyles.body2,
-            color = cs.onSurfaceVariantSummary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.Top) {
+            Text(
+                text = item.title.ifBlank { item.raw },
+                style = MiuixTheme.textStyles.body2,
+                color = cs.onSurfaceVariantSummary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            // 下载状态徽章：已下载 / 校验未通过（橙色）
+            if (item.downloadedAt > 0) {
+                val failed = item.downloadCheck == "size_mismatch" || item.downloadCheck == "missing"
+                val badge = if (failed) warningTagColors() else TagColors(cs.primaryContainer, cs.onPrimaryContainer)
+                Spacer(Modifier.width(6.dp))
+                TagText(if (failed) "校验未通过" else "已下载", badge.container, badge.content)
+            }
+        }
         Box(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

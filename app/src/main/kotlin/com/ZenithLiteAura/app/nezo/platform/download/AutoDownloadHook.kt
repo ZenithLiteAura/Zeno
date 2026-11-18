@@ -82,7 +82,7 @@ object AutoDownloadHook {
         }
 
         PlatformLog.info("自动下载触发：mode=$mode awemeId=${knownId ?: "待解析"}")
-        scope.launch { resolveAndEnqueue(context, raw, knownId, mode, settings.zipNamingRule) }
+        scope.launch { resolveAndEnqueue(context, raw, knownId, mode, settings.zipNamingRule, item.url) }
     }
 
     private suspend fun resolveAndEnqueue(
@@ -91,6 +91,7 @@ object AutoDownloadHook {
         knownId: String?,
         mode: String,
         ruleText: String,
+        sourceUrl: String,
     ) {
         val work = runCatching { PlatformResolvers.resolve(raw).toDouyinWork() }
             .onFailure { PlatformLog.warn("自动下载解析异常：${it.message}") }
@@ -126,12 +127,12 @@ object AutoDownloadHook {
         var enqueued = false
         when {
             work.type == "image" && work.pics.isNotEmpty() -> {
-                queue.enqueueImageZip(awemeId, title, work.pics, rule)
+                queue.enqueueImageZip(awemeId, title, work.pics, rule, sourceUrl = sourceUrl)
                 enqueued = true
             }
 
             work.type == "video" && mode == "all" && work.videoUrl.isNotBlank() -> {
-                queue.enqueueVideoZip(awemeId, title, work.videoUrl, rule, work.videoQuality)
+                queue.enqueueVideoZip(awemeId, title, work.videoUrl, rule, work.videoQuality, sourceUrl = sourceUrl, expectedSize = work.videoSize)
                 enqueued = true
             }
 

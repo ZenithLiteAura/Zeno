@@ -47,6 +47,10 @@ internal class DownloadJob(
     val coverUrl: String = "",
     /** 逐张下载时的序号（1 起），用于 01_/02_ 命名；ZIP 任务恒为 1 */
     val seq: Int = 1,
+    /** 触发这次下载的原始条目 URL（下载完成后按它给收件箱条目打标 / 归档） */
+    val sourceUrl: String = "",
+    /** 解析结果里的期望字节数（视频才有，0=未知）；用于下载后校验是否被截断 */
+    val expectedSize: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     @Volatile
@@ -77,6 +81,14 @@ internal class DownloadJob(
     @Volatile
     var startedAt: Long = 0L
 
+    /** ZIP 实际写入的条目数（校验用，0=非 ZIP 或还没写完） */
+    @Volatile
+    var zipEntryCount: Int = 0
+
+    /** 下载完成并校验后，被自动移入回收站的条目数（通知文案用） */
+    @Volatile
+    var archivedCount: Int = 0
+
     /** 预计算的总条目数，进 RUNNING 时写入 total */
     val plannedTotal: Int
         get() = when (kind) {
@@ -94,6 +106,8 @@ internal class DownloadJob(
         speedPerSec = 0L
         cancelRequested = false
         startedAt = 0L
+        zipEntryCount = 0
+        archivedCount = 0
     }
 
     fun toUi(): DownloadTaskUi = DownloadTaskUi(
@@ -121,6 +135,8 @@ internal class DownloadJob(
         addProperty("videoQuality", videoQuality)
         addProperty("coverUrl", coverUrl)
         addProperty("seq", seq)
+        addProperty("sourceUrl", sourceUrl)
+        addProperty("expectedSize", expectedSize)
         addProperty("state", state.wire)
         addProperty("done", done)
         addProperty("total", total)
@@ -152,6 +168,8 @@ internal class DownloadJob(
                 videoQuality = o.stringOf("videoQuality"),
                 coverUrl = o.stringOf("coverUrl"),
                 seq = o.intOf("seq", 1),
+                sourceUrl = o.stringOf("sourceUrl"),
+                expectedSize = o.longOf("expectedSize", 0L),
                 createdAt = o.longOf("createdAt", System.currentTimeMillis()),
             )
 

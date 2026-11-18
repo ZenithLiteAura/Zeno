@@ -40,6 +40,8 @@ import com.ZenithLiteAura.app.nezo.ui.download.DownloadPage
 import com.ZenithLiteAura.app.nezo.ui.settings.LocalSettingsNavigate
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsDetailPage
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsRoute
+import com.ZenithLiteAura.app.nezo.ui.settings.TrashGateway
+import com.ZenithLiteAura.app.nezo.ui.settings.TrashPage
 import com.clipnest.core.AppSettings
 import com.clipnest.core.CaptureRule
 import com.clipnest.core.ClipItem
@@ -126,6 +128,9 @@ fun ClipHomeScreen(
     val downloadTasks by downloads.tasks.collectAsState()
     val activeDownloads = downloadTasks.count { it.state == "queued" || it.state == "running" }
 
+    // 回收站条数（清空确认文案用）
+    val trashItems by TrashGateway.trashFlow.collectAsState()
+
     val screen = when {
         tab == TAB_HOME -> NezoScreen.Home
         tab == TAB_DOWNLOAD -> if (showDownloadList) NezoScreen.DownloadList else NezoScreen.Download
@@ -178,7 +183,7 @@ fun ClipHomeScreen(
         } else {
             confirm = ConfirmState(
                 title = "清空全部收录？",
-                desc = "本机保存的 ${items.size} 条记录会全部删除，不可撤销。",
+                desc = "本机保存的 ${items.size} 条记录会全部删除，不可撤销（回收站不受影响）。",
                 confirmLabel = "清空",
                 danger = true,
                 onConfirm = {
@@ -325,13 +330,35 @@ fun ClipHomeScreen(
                             )
                         }
 
-                        NezoScreen.SettingsSub -> SettingsDetailPage(
-                            route = settingsRoute,
-                            settings = settings,
-                            itemCount = items.size,
-                            actions = actions,
-                            onClearAll = requestClearAll,
-                        )
+                        NezoScreen.SettingsSub -> if (settingsRoute == SettingsRoute.Trash) {
+                            TrashPage(
+                                actions = actions,
+                                onToast = { message -> showToast(message) },
+                                onRequestPurgeAll = {
+                                    confirm = ConfirmState(
+                                        title = "清空回收站？",
+                                        desc = "回收站里的 ${trashItems.size} 条记录将被彻底删除，无法恢复。",
+                                        confirmLabel = "清空",
+                                        danger = true,
+                                        onConfirm = {
+                                            if (TrashGateway.purgeAll()) {
+                                                showToast("回收站已清空")
+                                            } else {
+                                                showToast("清空失败，稍后再试")
+                                            }
+                                        },
+                                    )
+                                },
+                            )
+                        } else {
+                            SettingsDetailPage(
+                                route = settingsRoute,
+                                settings = settings,
+                                itemCount = items.size,
+                                actions = actions,
+                                onClearAll = requestClearAll,
+                            )
+                        }
                     }
                 }
 

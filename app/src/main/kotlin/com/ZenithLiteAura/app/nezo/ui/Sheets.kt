@@ -95,6 +95,40 @@ fun DetailSheet(
                     color = cs.onSurfaceVariantSummary,
                 )
             }
+            val checkFailed = content.downloadCheck == "size_mismatch" || content.downloadCheck == "missing"
+            if (content.downloadedAt > 0) {
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val badge = if (checkFailed) {
+                        warningTagColors()
+                    } else {
+                        TagColors(cs.primaryContainer, cs.onPrimaryContainer)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(badge.container)
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = if (checkFailed) "校验未通过" else "已下载",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = badge.content,
+                            maxLines = 1,
+                        )
+                    }
+                    if (checkFailed) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (content.downloadCheck == "missing") "文件缺失" else "文件大小不符",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = warningTagColors().content,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+
             if (content.url.isNotBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Row(
@@ -154,7 +188,7 @@ fun DetailSheet(
                 ) {
                     Icon(MiuixIcons.Download, null, Modifier.size(17.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("解析并下载")
+                    Text(if (content.downloadedAt > 0) "重新下载" else "解析并下载")
                 }
                 Spacer(Modifier.height(10.dp))
             }

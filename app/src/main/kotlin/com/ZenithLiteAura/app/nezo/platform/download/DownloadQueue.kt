@@ -78,7 +78,13 @@ internal class DownloadQueue private constructor(private val context: Context) {
 
     // ── 入队 ──────────────────────────────────────────────────────────────
 
-    fun enqueueImageZip(awemeId: String, title: String, pics: List<String>, rule: Int): String =
+    fun enqueueImageZip(
+        awemeId: String,
+        title: String,
+        pics: List<String>,
+        rule: Int,
+        sourceUrl: String = "",
+    ): String =
         enqueueJob(
             DownloadJob(
                 id = newId(),
@@ -87,10 +93,19 @@ internal class DownloadQueue private constructor(private val context: Context) {
                 kind = DownloadKind.IMAGE_ZIP,
                 rule = rule,
                 pics = pics,
+                sourceUrl = sourceUrl,
             )
         )
 
-    fun enqueueVideoZip(awemeId: String, title: String, videoUrl: String, rule: Int, quality: String = ""): String =
+    fun enqueueVideoZip(
+        awemeId: String,
+        title: String,
+        videoUrl: String,
+        rule: Int,
+        quality: String = "",
+        sourceUrl: String = "",
+        expectedSize: Long = 0L,
+    ): String =
         enqueueJob(
             DownloadJob(
                 id = newId(),
@@ -100,10 +115,19 @@ internal class DownloadQueue private constructor(private val context: Context) {
                 rule = rule,
                 videoUrl = videoUrl,
                 videoQuality = quality,
+                sourceUrl = sourceUrl,
+                expectedSize = expectedSize,
             )
         )
 
-    fun enqueueImage(awemeId: String, title: String, picUrl: String, rule: Int, seq: Int = 1): String =
+    fun enqueueImage(
+        awemeId: String,
+        title: String,
+        picUrl: String,
+        rule: Int,
+        seq: Int = 1,
+        sourceUrl: String = "",
+    ): String =
         enqueueJob(
             DownloadJob(
                 id = newId(),
@@ -113,10 +137,18 @@ internal class DownloadQueue private constructor(private val context: Context) {
                 rule = rule,
                 pics = listOf(picUrl),
                 seq = seq.coerceAtLeast(1),
+                sourceUrl = sourceUrl,
             )
         )
 
-    fun enqueueVideo(awemeId: String, title: String, videoUrl: String, quality: String = ""): String =
+    fun enqueueVideo(
+        awemeId: String,
+        title: String,
+        videoUrl: String,
+        quality: String = "",
+        sourceUrl: String = "",
+        expectedSize: Long = 0L,
+    ): String =
         enqueueJob(
             DownloadJob(
                 id = newId(),
@@ -126,6 +158,8 @@ internal class DownloadQueue private constructor(private val context: Context) {
                 rule = 3,
                 videoUrl = videoUrl,
                 videoQuality = quality,
+                sourceUrl = sourceUrl,
+                expectedSize = expectedSize,
             )
         )
 
@@ -249,6 +283,11 @@ internal class DownloadQueue private constructor(private val context: Context) {
                         job.done = job.total.coerceAtLeast(job.done)
                         job.state = DownloadState.DONE
                         PlatformLog.info("任务完成：${job.id} uri=${job.savedUri}")
+
+                        // 下载完成钩子：校验产物 → 给收件箱条目打标 →（按设置）自动移入回收站。
+                        // 全程 try/catch，绝不能因为归档逻辑把已成功的下载判成失败。
+                        runCatching { DownloadVerifier.onJobFinished(context, job) }
+                            .onFailure { PlatformLog.warn("下载完成钩子异常：${it.message}") }
                     }
                 } catch (t: CancellationException) {
                     job.state = DownloadState.CANCELED

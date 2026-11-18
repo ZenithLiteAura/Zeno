@@ -11,6 +11,7 @@ import com.ZenithLiteAura.app.nezo.data.DownloadController
 import com.ZenithLiteAura.app.nezo.data.DownloadTaskUi
 import com.ZenithLiteAura.app.nezo.data.DownloadWorkUi
 import com.ZenithLiteAura.app.nezo.platform.PlatformLog
+import com.clipnest.core.douyin.DouyinLinks
 import com.clipnest.core.douyin.DouyinWork
 import com.clipnest.core.platform.PlatformResolvers
 import com.clipnest.core.download.DownloadNaming
@@ -76,6 +77,8 @@ class DownloadControllerImpl(context: Context) : DownloadController {
 
     /** 本次解析完成时间：抖音图片直链有签名时效，超过 10 分钟提醒重新解析 */
     private var resolvedAt = 0L
+    /** 触发解析的原始条目 URL（从收件箱点下载时就是 item.url），用于下载完成后打标/归档 */
+    private var resolvedSourceUrl = ""
 
     private var resolveSeq = 0
     private var resolveJob: Job? = null
@@ -114,6 +117,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
                 currentWork = resolved
                 selectedQualityLabel = null
                 resolvedAt = System.currentTimeMillis()
+                resolvedSourceUrl = runCatching { DouyinLinks.extractUrl(input) ?: input }.getOrDefault(input)
                 _work.value = resolved.toUi()
 
                 if (resolved.ok) {
@@ -141,6 +145,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         resolveJob?.cancel()
         resolveSeq++
         currentWork = null
+        resolvedSourceUrl = ""
         _work.value = null
         _resolving.value = false
     }
@@ -160,7 +165,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         warnIfStale()
 
         runCatching {
-            queue.enqueueImageZip(work.awemeId, titleOf(work), work.pics, rule.coerceIn(1, 4))
+            queue.enqueueImageZip(work.awemeId, titleOf(work), work.pics, rule.coerceIn(1, 4), sourceUrl = resolvedSourceUrl)
             toast("已加入队列：${work.pics.size} 张图片打包成 ZIP")
         }.onFailure {
             PlatformLog.error("图片 ZIP 入队失败", it)
@@ -177,7 +182,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         warnIfStale()
 
         runCatching {
-            queue.enqueueVideoZip(work.awemeId, titleOf(work), videoUrlFor(work), rule.coerceIn(1, 4), selectedQualityLabel ?: work.videoQuality)
+            queue.enqueueVideoZip(work.awemeId, titleOf(work), videoUrlFor(work), rule.coerceIn(1, 4), selectedQualityLabel ?: work.videoQuality, sourceUrl = resolvedSourceUrl, expectedSize = work.videoSize)
             toast("已加入队列：视频打包成 ZIP")
         }.onFailure {
             PlatformLog.error("视频 ZIP 入队失败", it)
@@ -200,7 +205,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         runCatching {
             val rule = runCatching { ClipRepo.settings.value.zipNamingRule.toIntOrNull() ?: 1 }.getOrDefault(1)
             work.pics.forEachIndexed { index, url ->
-                queue.enqueueImage(work.awemeId, titleOf(work), url, rule.coerceIn(1, 4), seq = index + 1)
+                queue.enqueueImage(work.awemeId, titleOf(work), url, rule.coerceIn(1, 4), seq = index + 1, sourceUrl = resolvedSourceUrl)
                 // 多张图逐个入队时给个轻微序号区分，日志里能看出顺序
                 PlatformLog.info("逐张入队 ${index + 1}/${work.pics.size}")
             }
@@ -220,7 +225,7 @@ class DownloadControllerImpl(context: Context) : DownloadController {
         warnIfStale()
 
         runCatching {
-            queue.enqueueVideo(work.awemeId, titleOf(work), videoUrlFor(work), selectedQualityLabel ?: work.videoQuality)
+            queue.enqueueVideo(work.awemeId, titleOf(work), videoUrlFor(work), selectedQualityLabel ?: work.videoQuality, sourceUrl = resolvedSourceUrl, expectedSize = work.videoSize)
             toast("已加入队列：保存视频")
         }.onFailure {
             PlatformLog.error("视频入队失败", it)

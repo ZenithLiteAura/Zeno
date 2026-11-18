@@ -50,6 +50,8 @@ fun SettingsDetailPage(
         SettingsRoute.Theme -> ThemePage(settings, actions)
         SettingsRoute.Export -> ExportPage(actions)
         SettingsRoute.Clear -> ClearPage(itemCount, onClearAll)
+        // 回收站页由 ClipHomeScreen 单独渲染（需要 ConfirmState 与 toast）
+        SettingsRoute.Trash -> Unit
         SettingsRoute.AboutInfo -> AboutInfoPage(actions)
         SettingsRoute.Hub -> Unit
     }

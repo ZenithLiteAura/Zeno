@@ -1,4 +1,4 @@
-﻿package com.ZenithLiteAura.app.nezo.platform.download
+package com.ZenithLiteAura.app.nezo.platform.download
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -133,12 +133,13 @@ internal object DownloadNotifier {
 
     private fun notifyDone(context: Context, job: DownloadJob) {
         val title = job.title.ifBlank { "抖音作品" }
+        val archivedHint = if (job.archivedCount > 0) " · 已移入回收站" else ""
         val target = openSavedIntent(context, job) ?: openAppIntent(context)
         val notification = NotificationCompat.Builder(context, CHANNEL_RESULT)
             .setSmallIcon(R.drawable.ic_stat_clipnest)
             .setContentTitle("下载完成")
-            .setContentText("$title 已保存")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$title 已保存，点这里打开。"))
+            .setContentText("$title 已保存$archivedHint")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$title 已保存$archivedHint，点这里打开。"))
             .setContentIntent(target)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)

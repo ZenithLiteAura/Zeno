@@ -18,6 +18,7 @@ enum class SettingsRoute(val title: String) {
     Theme("外观"),
     Export("导出"),
     Clear("清空收录"),
+    Trash("回收站"),
     AboutInfo("版本信息"),
 }
 

@@ -7,6 +7,7 @@ import android.os.Process
 import android.os.UserHandle
 import android.util.Log
 import androidx.annotation.Keep
+import com.ZenithLiteAura.app.nezo.BuildConfig
 
 /**
  * 跑在 **Shizuku shell/root 进程** 里的剪贴板监听 UserService。
@@ -59,6 +60,15 @@ class ShizukuClipService : IClipWatcher.Stub {
     // ── AIDL 入口 ─────────────────────────────────────────────────────────
 
     override fun start(cb: IClipWatcherCallback?) {
+        // 任何 Throwable 都不能从 binder 方法逃逸：崩掉 shell 进程会让客户端一直「连接断开」
+        try {
+            startInternal(cb)
+        } catch (t: Throwable) {
+            Log.e(TAG, "start 异常（已兜住，不影响进程）", t)
+        }
+    }
+
+    private fun startInternal(cb: IClipWatcherCallback?) {
         if (cb == null) {
             Log.w(TAG, "start() 收到空回调，忽略")
             return
@@ -84,10 +94,16 @@ class ShizukuClipService : IClipWatcher.Stub {
                 Log.i(TAG, "已在 shell 进程注册剪贴板监听（uid=${Process.myUid()}）")
             }
 
-            // 一次性诊断（三种 Context + 原始 binder）
-            if (!diagnosticsDone) {
+            // 一次性诊断默认关闭（Android 17 上隐藏 API 反射可能直接抛/拖慢 binder 调用，
+            // 慢 binder 会被 Shizuku 判为 UserService 无响应而回收）：
+            //   adb shell touch /data/local/tmp/nezo_shizuku_diag   （debug 包才生效）
+            if (!diagnosticsDone && diagEnabled()) {
                 diagnosticsDone = true
-                logDiagnostics()
+                // 后台线程跑，绝不在 binder 线程做反射/诊断
+                Thread({ runCatching { logDiagnostics() } }, "NezoShizukuDiag").apply {
+                    isDaemon = true
+                    start()
+                }
             }
 
             // 首次主动读一次
@@ -105,7 +121,14 @@ class ShizukuClipService : IClipWatcher.Stub {
         }.onFailure { Log.e(TAG, "start 失败", it) }
     }
 
-    override fun stop(): Boolean = runCatching {
+    override fun stop(): Boolean = try {
+        stopInternal()
+    } catch (t: Throwable) {
+        Log.e(TAG, "stop 异常（已兜住）", t)
+        false
+    }
+
+    private fun stopInternal(): Boolean = runCatching {
         stopPolling()
         rootFallback?.stop()
         rootFallback = null
@@ -125,7 +148,14 @@ class ShizukuClipService : IClipWatcher.Stub {
      * 取 ClipboardManager：优先系统 Context（package=android，与 shell/root uid 匹配），
      * 其次才用 Shizuku 传进来的包 Context。
      */
-    private fun resolveClipboard(): ClipboardManager? {
+    private fun resolveClipboard(): ClipboardManager? = try {
+        resolveClipboardUnsafe()
+    } catch (t: Throwable) {
+        Log.e(TAG, "取 ClipboardManager 异常（已兜住）", t)
+        null
+    }
+
+    private fun resolveClipboardUnsafe(): ClipboardManager? {
         systemClipboard?.let { return it }
 
         // uid=2000（shell / 无线调试）时剪贴板按「uid + 包归属」校验：
@@ -319,7 +349,26 @@ class ShizukuClipService : IClipWatcher.Stub {
      * - 「uid 不匹配」：系统 Context / 包 Context 都返回 null，但 appop 允许；
      * - 「OEM 剪贴板拒绝」：hasPrimaryClip 为 true 但 primaryClip 为 null、或直接抛 SecurityException。
      */
+    /** 诊断开关：默认关闭；debug 包 + 创建下面这个文件（或 setprop）才开 */
+    private fun diagEnabled(): Boolean {
+        if (!BuildConfig.DEBUG) return false
+        return runCatching { java.io.File("/data/local/tmp/nezo_shizuku_diag").exists() }.getOrDefault(false) ||
+            runCatching {
+                val clazz = Class.forName("android.os.SystemProperties")
+                val get = clazz.getMethod("get", String::class.java, String::class.java)
+                get.invoke(null, "debug.nezo.shizuku.diag", "0") == "1"
+            }.getOrDefault(false)
+    }
+
     private fun logDiagnostics() {
+        try {
+            logDiagnosticsUnsafe()
+        } catch (t: Throwable) {
+            Log.w(TAG, "[diag] 诊断异常（已兜住）：${t.javaClass.simpleName}: ${t.message}")
+        }
+    }
+
+    private fun logDiagnosticsUnsafe() {
         val uid = Process.myUid()
         val pid = Process.myPid()
         // UserHandle.getUserId 是隐藏 API，这里用公开的 Process.myUserHandle() 打日志即可
