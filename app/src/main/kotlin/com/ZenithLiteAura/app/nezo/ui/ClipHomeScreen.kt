@@ -38,6 +38,7 @@ import com.ZenithLiteAura.app.nezo.ui.dock.ClipNestDock
 import com.ZenithLiteAura.app.nezo.ui.download.DownloadListPage
 import com.ZenithLiteAura.app.nezo.ui.download.DownloadPage
 import com.ZenithLiteAura.app.nezo.ui.settings.LocalSettingsNavigate
+import com.ZenithLiteAura.app.nezo.ui.settings.LogsPage
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsDetailPage
 import com.ZenithLiteAura.app.nezo.ui.settings.SettingsRoute
 import com.ZenithLiteAura.app.nezo.ui.settings.TrashGateway
@@ -330,8 +331,8 @@ fun ClipHomeScreen(
                             )
                         }
 
-                        NezoScreen.SettingsSub -> if (settingsRoute == SettingsRoute.Trash) {
-                            TrashPage(
+                        NezoScreen.SettingsSub -> when (settingsRoute) {
+                            SettingsRoute.Trash -> TrashPage(
                                 actions = actions,
                                 onToast = { message -> showToast(message) },
                                 onRequestPurgeAll = {
@@ -350,8 +351,13 @@ fun ClipHomeScreen(
                                     )
                                 },
                             )
-                        } else {
-                            SettingsDetailPage(
+
+                            SettingsRoute.Logs -> LogsPage(
+                                actions = actions,
+                                onToast = { message -> showToast(message) },
+                            )
+
+                            else -> SettingsDetailPage(
                                 route = settingsRoute,
                                 settings = settings,
                                 itemCount = items.size,

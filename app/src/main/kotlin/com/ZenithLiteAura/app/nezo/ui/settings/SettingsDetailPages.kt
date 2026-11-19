@@ -52,6 +52,8 @@ fun SettingsDetailPage(
         SettingsRoute.Clear -> ClearPage(itemCount, onClearAll)
         // 回收站页由 ClipHomeScreen 单独渲染（需要 ConfirmState 与 toast）
         SettingsRoute.Trash -> Unit
+        // 日志与诊断页由 ClipHomeScreen 单独渲染（需要导出 launcher 与 toast）
+        SettingsRoute.Logs -> Unit
         SettingsRoute.AboutInfo -> AboutInfoPage(actions)
         SettingsRoute.Hub -> Unit
     }

@@ -110,6 +110,14 @@ object ClipRepo {
         val result = engine.tryCapture(text, source)
         val item = result.item
         if (!result.matched || item == null) return null
+
+        // 回收站参与去重：同一链接已在回收站 → 忽略本次收录（不新增、也不自动恢复，尊重用户手动管理）
+        val dedupe = runCatching { _settings.value.dedupeByUrl }.getOrDefault(true)
+        if (dedupe && item.url.isNotEmpty() && store.isInTrash(item.url)) {
+            PlatformLog.info("已在回收站，跳过收录：${item.url}（source=$source）")
+            return null
+        }
+
         val stored = store.add(item)
         _lastCaptured.value = stored
         return result.copy(item = stored)
@@ -121,8 +129,14 @@ object ClipRepo {
     /** 这段文本命中的第一条链接（不落库）；未命中返回 null */
     fun firstMatchUrl(text: String): String? = engine.previewAll(text).firstOrNull()?.item?.url
 
-    /** 该链接是否已经收录过（用于「回到前台补抓」时避免重复置顶） */
-    fun containsUrl(url: String): Boolean = _items.value.any { it.url == url }
+    /** 这段文本解析出的链接是否已在回收站（UI/采集侧可据此提示「已在回收站」） */
+    fun isTrashDuplicate(text: String): Boolean = runCatching {
+        val url = firstMatchUrl(text) ?: return false
+        store.isInTrash(url)
+    }.getOrDefault(false)
+
+    /** 该链接是否已经收录过（**含回收站**，用于「回到前台补抓」/后台监听避免重复置顶） */
+    fun containsUrl(url: String): Boolean = store.containsUrlAnywhere(url)
 
     fun setStar(id: String, starred: Boolean) = store.setStar(id, starred)
 

@@ -19,6 +19,7 @@ enum class SettingsRoute(val title: String) {
     Export("导出"),
     Clear("清空收录"),
     Trash("回收站"),
+    Logs("日志与诊断"),
     AboutInfo("版本信息"),
 }
 

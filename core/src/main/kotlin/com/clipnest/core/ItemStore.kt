@@ -86,8 +86,8 @@ class ItemStore(
                     raw = prepared.raw.ifEmpty { old.raw },
                     capturedAt = prepared.capturedAt,
                     source = prepared.source.ifEmpty { old.source },
-                    // 重新收录同一条链接 → 从回收站恢复回收件箱（下载标记保留）
-                    trashAt = 0L,
+                    // 回收站优先级最高：**不自动恢复**（去重时回收站条目直接跳过，见 ClipRepo.captureText）
+                    // trashAt 保留旧值
                     // id / starred / note / coverUrl / meta / downloadedAt / downloadCheck 保留旧值
                 )
                 items.removeAt(existingIndex)
@@ -265,6 +265,20 @@ class ItemStore(
         return removedCount
     }
 
+    /**
+     * 该 url 是否已经进了回收站（规范化后比较）。
+     * 收录去重要用它：回收站里的链接**不再重复收录**，也不要自动恢复。
+     */
+    fun isInTrash(url: String): Boolean = synchronized(lock) {
+        val normalized = TextUtil.normalizeUrl(url)
+        normalized.isNotEmpty() && items.any { it.trashAt > 0L && it.url == normalized }
+    }
+
+    /** 该 url 是否已存在（**含回收站**，用于「已收录过」判断） */
+    fun containsUrlAnywhere(url: String): Boolean = synchronized(lock) {
+        val normalized = TextUtil.normalizeUrl(url)
+        normalized.isNotEmpty() && items.any { it.url == normalized }
+    }
     /** 回收站列表（按移入时间倒序）。 */
     fun trashItems(): List<ClipItem> = synchronized(lock) {
         items.filter { it.trashAt > 0L }.sortedByDescending { it.trashAt }

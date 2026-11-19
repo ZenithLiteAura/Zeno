@@ -34,6 +34,7 @@ import top.yukonga.miuix.kmp.icon.extended.Folder
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Messages
+import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.icon.extended.Paste
 import top.yukonga.miuix.kmp.icon.extended.Refresh
@@ -257,6 +258,11 @@ fun SettingsPage(
                     title = "检查更新",
                     value = updateStatusText(updateInfo),
                     onClick = { UpdateGateway.check(context, manual = true) },
+                )
+                SettingsNavRow(
+                    icon = MiuixIcons.Notes,
+                    title = "日志与诊断",
+                    onClick = { navigate(SettingsRoute.Logs) },
                 )
             }
         }

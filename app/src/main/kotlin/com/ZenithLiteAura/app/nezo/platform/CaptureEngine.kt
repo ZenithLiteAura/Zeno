@@ -25,11 +25,18 @@ object CaptureEngine {
         val item = result.item ?: return result
         PlatformLog.info("收录成功[$source] ${item.platformName} ${item.author} ${item.url}")
 
-        // 前台时 UI 自己会提示（Toast/卡片高亮），只在后台才发系统通知，避免重复打扰
+        // 前台时 UI 自己会提示（Toast/卡片高亮），只在后台才给反馈：
+        // ① 悬浮小卡片（有悬浮窗权限时，最直观）；② 没有悬浮窗权限时退回系统通知（settings.notify 控制）
         val settings = runCatching { ClipRepo.settings.value }.getOrNull()
-        if (settings?.notify == true && !AppVisibility.isForeground) {
-            runCatching { Notifier.notifyCaptured(context, item) }
-                .onFailure { PlatformLog.warn("收录通知失败：${it.message}") }
+        if (!AppVisibility.isForeground) {
+            val toastShown = runCatching { CaptureToast.show(context.applicationContext, item) }
+                .onFailure { PlatformLog.warn("收录悬浮提示失败：${it.message}") }
+                .getOrDefault(false)
+
+            if (!toastShown && settings?.notify == true) {
+                runCatching { Notifier.notifyCaptured(context, item) }
+                    .onFailure { PlatformLog.warn("收录通知失败：${it.message}") }
+            }
         }
 
         // 自动下载钩子：抖音作品按 settings.autoDownload 异步解析并入队。
